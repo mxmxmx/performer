@@ -19,7 +19,8 @@
 
 class Project {
 public:
-    static constexpr uint32_t Version = 3;
+    static constexpr uint32_t Version4 = 4;
+    static constexpr uint32_t Version = Version4;
 
     //----------------------------------------
     // Types
@@ -220,7 +221,7 @@ public:
         index = clamp(index, 0, CONFIG_TRACK_COUNT - 1);
         if (index != _selectedTrackIndex) {
             _selectedTrackIndex = index;
-            _observable.notify(SelectedTrackIndex);
+            _observable.notify(SelectedTrackIndexChanged);
 
             // switch selected pattern
             setSelectedPatternIndex(_playState.trackState(index).pattern());
@@ -237,7 +238,7 @@ public:
 
     void setSelectedPatternIndex(int index) {
         _selectedPatternIndex = clamp(index, 0, CONFIG_PATTERN_COUNT - 1);
-        _observable.notify(SelectedPatternIndex);
+        _observable.notify(SelectedPatternIndexChanged);
     }
 
     bool isSelectedPattern(int index) const { return _selectedPatternIndex == index; }
@@ -285,13 +286,15 @@ public:
     // Observable
     //----------------------------------------
 
-    enum Property {
-        TrackModes,
-        SelectedTrackIndex,
-        SelectedPatternIndex,
+    enum Event {
+        ProjectCleared,
+        ProjectRead,
+        TrackModeChanged,
+        SelectedTrackIndexChanged,
+        SelectedPatternIndexChanged,
     };
 
-    void watch(std::function<void(Property)> handler) {
+    void watch(std::function<void(Event)> handler) {
         _observable.watch(handler);
     }
 
@@ -334,5 +337,5 @@ private:
     NoteSequence::Layer _selectedNoteSequenceLayer = NoteSequence::Layer(0);
     CurveSequence::Layer _selectedCurveSequenceLayer = CurveSequence::Layer(0);
 
-    Observable<Property, 2> _observable;
+    Observable<Event, 2> _observable;
 };

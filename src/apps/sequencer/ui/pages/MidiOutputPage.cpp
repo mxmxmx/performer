@@ -18,10 +18,9 @@ MidiOutputPage::MidiOutputPage(PageManager &manager, PageContext &context) :
     showOutput(0);
 }
 
-// void MidiOutputPage::show(int routeIndex, const Routing::Route *initialValue) {
-//     showOutput(routeIndex, initialValue);
-//     ListPage::show();
-// }
+void MidiOutputPage::reset() {
+    showOutput(0);
+}
 
 void MidiOutputPage::enter() {
     ListPage::enter();
@@ -91,7 +90,7 @@ void MidiOutputPage::showOutput(int outputIndex) {
 }
 
 void MidiOutputPage::selectOutput(int outputIndex) {
-    outputIndex = clamp(outputIndex, 0, CONFIG_TRACK_COUNT - 1);
+    outputIndex = clamp(outputIndex, 0, CONFIG_MIDI_OUTPUT_COUNT - 1);
     if (outputIndex != _outputIndex) {
         showOutput(outputIndex);
     }

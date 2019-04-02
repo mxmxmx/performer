@@ -1,7 +1,7 @@
 # libopencm3
 
 set(LIBOPENCM3_DIR ${CMAKE_CURRENT_SOURCE_DIR}/libs/libopencm3)
-add_custom_target(libopencm3 make AR=${CMAKE_AR} CC=${CMAKE_C_COMPILER} WORKING_DIRECTORY ${LIBOPENCM3_DIR})
+add_custom_target(libopencm3 make -j1 AR=${CMAKE_AR} CC=${CMAKE_C_COMPILER} lib/stm32/f4 WORKING_DIRECTORY ${LIBOPENCM3_DIR})
 
 # platform
 
@@ -101,7 +101,6 @@ function(add_openocd_targets executable)
 endfunction(add_openocd_targets)
 
 function(platform_postprocess_executable executable)
-    # set_target_properties(${executable} PROPERTIES COMPILE_FLAGS "-save-temps")
     set_target_properties(${executable} PROPERTIES LINK_FLAGS "-T ${CMAKE_SOURCE_DIR}/src/platform/stm32/stm32f405.ld")
 
     add_custom_target(${executable}.bin ALL ${OBJCOPY} -Obinary ${executable} ${executable}.bin DEPENDS ${executable})

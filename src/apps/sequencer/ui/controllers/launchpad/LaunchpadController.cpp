@@ -15,7 +15,7 @@
         static constexpr int col = _col_;   \
     };
 
-// Global
+// Global buttons
 BUTTON(Navigate, LaunchpadDevice::FunctionRow, 0)
 BUTTON(Left, LaunchpadDevice::FunctionRow, 1)
 BUTTON(Right, LaunchpadDevice::FunctionRow, 2)
@@ -24,13 +24,14 @@ BUTTON(Down, LaunchpadDevice::FunctionRow, 4)
 BUTTON(Play, LaunchpadDevice::FunctionRow, 6)
 BUTTON(Shift, LaunchpadDevice::FunctionRow, 7)
 
-// Sequence
+// Sequence page buttons
 BUTTON(Layer, LaunchpadDevice::FunctionRow, 1)
 BUTTON(FirstStep, LaunchpadDevice::FunctionRow, 2)
 BUTTON(LastStep, LaunchpadDevice::FunctionRow, 3)
+BUTTON(RunMode, LaunchpadDevice::FunctionRow, 4)
 BUTTON(Fill, LaunchpadDevice::FunctionRow, 6)
 
-// Pattern
+// Pattern page buttons
 BUTTON(Latch, LaunchpadDevice::FunctionRow, 1)
 BUTTON(Sync, LaunchpadDevice::FunctionRow, 2)
 
@@ -69,6 +70,24 @@ static const LayerMapItem curveSequenceLayerMap[] = {
 
 static constexpr int curveSequenceLayerMapSize = sizeof(curveSequenceLayerMap) / sizeof(curveSequenceLayerMap[0]);
 
+struct RangeMap {
+    int16_t min[2];
+    int16_t max[2];
+    int map(int value) const {
+        return min[1] + ((value - min[0]) * (max[1] - min[1]) + (max[0] - min[0]) / 2) / (max[0] - min[0]);
+    }
+    int unmap(int value) const {
+        return min[0] + ((value - min[1]) * (max[0] - min[0]) + (max[1] - min[1]) / 2) / (max[1] - min[1]);
+    }
+};
+
+static const RangeMap curveMinMaxRangeMap = { { 0, 0 }, { 255, 7 } };
+
+static const RangeMap *curveSequenceLayerRangeMap[] = {
+    [int(CurveSequence::Layer::Shape)]  = nullptr,
+    [int(CurveSequence::Layer::Min)]    = &curveMinMaxRangeMap,
+    [int(CurveSequence::Layer::Max)]    = &curveMinMaxRangeMap,
+};
 
 LaunchpadController::LaunchpadController(ControllerManager &manager, Model &model, Engine &engine) :
     Controller(manager, model, engine),
@@ -134,7 +153,8 @@ bool LaunchpadController::globalButtonDown(const Button &button) {
             setMode(Mode::Pattern);
             break;
         case 2:
-            setMode(Mode::Performer);
+            // TODO implement performer mode
+            // setMode(Mode::Performer);
             break;
         case 6:
             _engine.togglePlay();
@@ -184,6 +204,9 @@ void LaunchpadController::sequenceDraw() {
     } else if (buttonState<LastStep>()) {
         mirrorButton<LastStep>();
         sequenceDrawStepRange(1);
+    } else if (buttonState<RunMode>()) {
+        mirrorButton<RunMode>();
+        sequenceDrawRunMode();
     } else {
         mirrorButton<Fill>();
         sequenceDrawSequence();
@@ -208,6 +231,10 @@ void LaunchpadController::sequenceButtonDown(const Button &button) {
     } else if (buttonState<LastStep>()) {
         if (button.isGrid()) {
             sequenceSetLastStep(button.gridIndex());
+        }
+    } else if (buttonState<RunMode>()) {
+        if (button.isGrid()) {
+            sequenceSetRunMode(button.gridIndex());
         }
     } else if (buttonState<Fill>()) {
         if (button.isScene()) {
@@ -243,6 +270,11 @@ void LaunchpadController::sequenceUpdateNavigation() {
     }
     case Track::TrackMode::Curve: {
         auto range = CurveSequence::layerRange(_project.selectedCurveSequenceLayer());
+        auto rangeMap = curveSequenceLayerRangeMap[int(_project.selectedCurveSequenceLayer())];
+        if (rangeMap) {
+            range.min = rangeMap->min[1];
+            range.max = rangeMap->max[1];
+        }
         _sequence.navigation.top = range.max / 8;
         _sequence.navigation.bottom = (range.min - 7) / 8;
         break;
@@ -305,6 +337,19 @@ void LaunchpadController::sequenceSetLastStep(int step) {
     }
 }
 
+void LaunchpadController::sequenceSetRunMode(int mode) {
+    switch (_project.selectedTrack().trackMode()) {
+    case Track::TrackMode::Note:
+        _project.selectedNoteSequence().setRunMode(Types::RunMode(mode));
+        break;
+    case Track::TrackMode::Curve:
+        _project.selectedCurveSequence().setRunMode(Types::RunMode(mode));
+        break;
+    default:
+        break;
+    }
+}
+
 void LaunchpadController::sequenceEditStep(int row, int col) {
     switch (_project.selectedTrack().trackMode()) {
     case Track::TrackMode::Note:
@@ -342,9 +387,13 @@ void LaunchpadController::sequenceEditNoteStep(int row, int col) {
 void LaunchpadController::sequenceEditCurveStep(int row, int col) {
     auto &sequence = _project.selectedCurveSequence();
     auto layer = _project.selectedCurveSequenceLayer();
+    auto rangeMap = curveSequenceLayerRangeMap[int(_project.selectedCurveSequenceLayer())];
 
     int linearIndex = col + _sequence.navigation.col * 8;
     int value = (7 - row) + _sequence.navigation.row * 8;
+    if (rangeMap) {
+        value = rangeMap->unmap(value);
+    }
 
     sequence.step(linearIndex).setLayerValue(layer, value);
 }
@@ -374,12 +423,27 @@ void LaunchpadController::sequenceDrawStepRange(int highlight) {
     switch (_project.selectedTrack().trackMode()) {
     case Track::TrackMode::Note: {
         const auto &sequence = _project.selectedNoteSequence();
-        drawStepRange(sequence.firstStep(), sequence.lastStep(), highlight == 0 ? sequence.firstStep() : sequence.lastStep());
+        drawRange(sequence.firstStep(), sequence.lastStep(), highlight == 0 ? sequence.firstStep() : sequence.lastStep());
         break;
     }
     case Track::TrackMode::Curve: {
         const auto &sequence = _project.selectedCurveSequence();
-        drawStepRange(sequence.firstStep(), sequence.lastStep(), highlight == 0 ? sequence.firstStep() : sequence.lastStep());
+        drawRange(sequence.firstStep(), sequence.lastStep(), highlight == 0 ? sequence.firstStep() : sequence.lastStep());
+        break;
+    }
+    default:
+        break;
+    }
+}
+
+void LaunchpadController::sequenceDrawRunMode() {
+    switch (_project.selectedTrack().trackMode()) {
+    case Track::TrackMode::Note: {
+        drawEnum(_project.selectedNoteSequence().runMode());
+        break;
+    }
+    case Track::TrackMode::Curve: {
+        drawEnum(_project.selectedCurveSequence().runMode());
         break;
     }
     default:
@@ -412,7 +476,7 @@ void LaunchpadController::sequenceDrawNoteSequence() {
         drawNoteSequenceBits(sequence, layer, currentStep);
         break;
     case NoteSequence::Layer::Note:
-        drawNoteSequenceDots(sequence, layer, currentStep);
+        drawNoteSequenceNotes(sequence, layer, currentStep);
         break;
     default:
         drawNoteSequenceBars(sequence, layer, currentStep);
@@ -589,9 +653,9 @@ void LaunchpadController::drawTracksGateAndMute(const Engine &engine, const Play
     }
 }
 
-void LaunchpadController::drawStepRange(int first, int last, int highlit) {
+void LaunchpadController::drawRange(int first, int last, int selected) {
     for (int i = first; i <= last; ++i) {
-        setGridLed(i, i == highlit ? Yellow : Green);
+        setGridLed(i, i == selected ? Yellow : Green);
     }
 }
 
@@ -624,8 +688,20 @@ void LaunchpadController::drawNoteSequenceBars(const NoteSequence &sequence, Not
     }
 }
 
-void LaunchpadController::drawNoteSequenceDots(const NoteSequence &sequence, NoteSequence::Layer layer, int currentStep) {
+void LaunchpadController::drawNoteSequenceNotes(const NoteSequence &sequence, NoteSequence::Layer layer, int currentStep) {
     int ofs = _sequence.navigation.row * 8;
+
+    // draw octave lines
+    int octave = sequence.selectedScale(_project.scale()).notesPerOctave();
+    for (int row = 0; row < 8; ++row) {
+        if (modulo(row + ofs, octave) == 0) {
+            for (int col = 0; col < 8; ++col) {
+            setGridLed(7 - row, col, Color(1, 1));
+            }
+        }
+    }
+
+    // draw notes
     for (int col = 0; col < 8; ++col) {
         int stepIndex = col + _sequence.navigation.col * 8;
         const auto &step = sequence.step(stepIndex);
@@ -634,11 +710,16 @@ void LaunchpadController::drawNoteSequenceDots(const NoteSequence &sequence, Not
 }
 
 void LaunchpadController::drawCurveSequenceDots(const CurveSequence &sequence, CurveSequence::Layer layer, int currentStep) {
+    auto rangeMap = curveSequenceLayerRangeMap[int(_project.selectedCurveSequenceLayer())];
     int ofs = _sequence.navigation.row * 8;
     for (int col = 0; col < 8; ++col) {
         int stepIndex = col + _sequence.navigation.col * 8;
         const auto &step = sequence.step(stepIndex);
-        setGridLed((7 - step.layerValue(layer)) + ofs, col, stepColor(true, stepIndex == currentStep));
+        int value = step.layerValue(layer);
+        if (rangeMap) {
+            value = rangeMap->map(value);
+        }
+        setGridLed((7 - value) + ofs, col, stepColor(true, stepIndex == currentStep));
     }
 }
 

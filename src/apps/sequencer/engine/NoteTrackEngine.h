@@ -35,13 +35,15 @@ public:
     bool isActiveSequence(const NoteSequence &sequence) const { return &sequence == _sequence; }
 
     int currentStep() const { return _currentStep; }
+    int currentRecordStep() const { return _currentRecordStep; }
 
     void setMonitorStep(int index);
 
 private:
     void triggerStep(uint32_t tick, uint32_t divisor);
     void recordStep(uint32_t tick, uint32_t divisor);
-    uint32_t applySwing(uint32_t tick);
+    uint32_t applySwing(uint32_t tick) const;
+    int noteFromMidiNote(uint8_t midiNote) const;
 
     NoteTrack &_noteTrack;
 
@@ -56,6 +58,7 @@ private:
 
     RecordHistory _recordHistory;
     bool _monitorOverrideActive = false;
+    int _currentRecordStep = -1;
 
     bool _activity;
     bool _gateOutput;
