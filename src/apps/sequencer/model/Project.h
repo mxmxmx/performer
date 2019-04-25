@@ -19,8 +19,18 @@
 
 class Project {
 public:
+    // added NoteTrack::cvUpdateMode
     static constexpr uint32_t Version4 = 4;
-    static constexpr uint32_t Version = Version4;
+
+    // added storing user scales with project
+    // added Project::name
+    // added UserScale::name
+    static constexpr uint32_t Version5 = 5;
+
+    // added Project::cvGateInput
+    static constexpr uint32_t Version6 = 6;
+
+    static constexpr uint32_t Version = Version6;
 
     //----------------------------------------
     // Types
@@ -57,31 +67,37 @@ public:
 
     // tempo
 
-    float tempo() const { return _tempo; }
-    void setTempo(float tempo) {
-        _tempo = clamp(tempo, 1.f, 1000.f);
+    float tempo() const { return _tempo.get(isRouted(Routing::Target::Tempo)); }
+    void setTempo(float tempo, bool routed = false) {
+        _tempo.set(clamp(tempo, 1.f, 1000.f), routed);
     }
 
     void editTempo(int value, bool shift) {
-        setTempo(tempo() + value * (shift ? 0.1f : 1.f));
+        if (!isRouted(Routing::Target::Tempo)) {
+            setTempo(tempo() + value * (shift ? 0.1f : 1.f));
+        }
     }
 
     void printTempo(StringBuilder &str) const {
+        _routed.print(str, Routing::Target::Tempo);
         str("%.1f", tempo());
     }
 
     // swing
 
-    int swing() const { return _swing; }
-    void setSwing(int swing) {
-        _swing = clamp(swing, 50, 75);
+    int swing() const { return _swing.get(isRouted(Routing::Target::Swing)); }
+    void setSwing(int swing, bool routed = false) {
+        _swing.set(clamp(swing, 50, 75), routed);
     }
 
     void editSwing(int value, bool shift) {
-        setSwing(ModelUtils::adjustedByStep(swing(), value, 5, !shift));
+        if (!isRouted(Routing::Target::Tempo)) {
+            setSwing(ModelUtils::adjustedByStep(swing(), value, 5, !shift));
+        }
     }
 
     void printSwing(StringBuilder &str) const {
+        _routed.print(str, Routing::Target::Swing);
         str("%d%%", swing());
     }
 
@@ -147,6 +163,21 @@ public:
 
     void printRecordMode(StringBuilder &str) const {
         str(Types::recordModeName(_recordMode));
+    }
+
+    // cvGateInput
+
+    Types::CvGateInput cvGateInput() const { return _cvGateInput; }
+    void setCvGateInput(Types::CvGateInput cvGateInput) {
+        _cvGateInput = ModelUtils::clampedEnum(cvGateInput);
+    }
+
+    void editCvGateInput(int value, bool shift) {
+        _cvGateInput = ModelUtils::adjustedEnum(_cvGateInput, value);
+    }
+
+    void printCvGateInput(StringBuilder &str) const {
+        str(Types::cvGateInputName(_cvGateInput));
     }
 
     // clockSetup
@@ -283,6 +314,14 @@ public:
           CurveSequence &selectedCurveSequence()       { return curveSequence(_selectedTrackIndex, selectedPatternIndex()); }
 
     //----------------------------------------
+    // Routing
+    //----------------------------------------
+
+    inline bool isRouted(Routing::Target target) const { return _routed.has(target); }
+    inline void setRouted(Routing::Target target, bool routed) { _routed.set(target, routed); }
+    void writeRouted(Routing::Target target, int intValue, float floatValue);
+
+    //----------------------------------------
     // Observable
     //----------------------------------------
 
@@ -316,12 +355,15 @@ public:
 private:
     uint8_t _slot = uint8_t(-1);
     char _name[NameLength + 1];
-    float _tempo;
-    uint8_t _swing;
+    Routable<float> _tempo;
+    Routable<uint8_t> _swing;
     uint8_t _syncMeasure;
     uint8_t _scale;
     uint8_t _rootNote;
     Types::RecordMode _recordMode;
+    Types::CvGateInput _cvGateInput;
+
+    RoutableSet<Routing::Target::ProjectFirst, Routing::Target::ProjectLast> _routed;
 
     ClockSetup _clockSetup;
     TrackArray _tracks;

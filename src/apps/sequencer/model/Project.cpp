@@ -14,6 +14,19 @@ Project::Project() :
     clear();
 }
 
+void Project::writeRouted(Routing::Target target, int intValue, float floatValue) {
+    switch (target) {
+    case Routing::Target::Tempo:
+        setTempo(floatValue, true);
+        break;
+    case Routing::Target::Swing:
+        setSwing(intValue, true);
+        break;
+    default:
+        break;
+    }
+}
+
 void Project::clear() {
     _slot = uint8_t(-1);
     StringUtils::copy(_name, "INIT", sizeof(_name));
@@ -23,6 +36,9 @@ void Project::clear() {
     setScale(0);
     setRootNote(0);
     setRecordMode(Types::RecordMode::Overdub);
+    setCvGateInput(Types::CvGateInput::Off);
+
+    _routed.clear();
 
     _clockSetup.clear();
 
@@ -39,6 +55,10 @@ void Project::clear() {
     _playState.clear();
     _routing.clear();
     _midiOutput.clear();
+
+    for (auto &userScale : UserScale::userScales) {
+        userScale.clear();
+    }
 
     setSelectedTrackIndex(0);
     setSelectedPatternIndex(0);
@@ -80,12 +100,14 @@ void Project::setTrackMode(int trackIndex, Track::TrackMode trackMode) {
 
 void Project::write(WriteContext &context) const {
     auto &writer = context.writer;
-    writer.write(_tempo);
-    writer.write(_swing);
+    writer.write(_name, NameLength + 1);
+    writer.write(_tempo.base);
+    writer.write(_swing.base);
     writer.write(_syncMeasure);
     writer.write(_scale);
     writer.write(_rootNote);
     writer.write(_recordMode);
+    writer.write(_cvGateInput);
 
     _clockSetup.write(context);
 
@@ -98,6 +120,8 @@ void Project::write(WriteContext &context) const {
     _routing.write(context);
     _midiOutput.write(context);
 
+    writeArray(context, UserScale::userScales);
+
     writer.write(_selectedTrackIndex);
     writer.write(_selectedPatternIndex);
 
@@ -108,12 +132,14 @@ bool Project::read(ReadContext &context) {
     clear();
 
     auto &reader = context.reader;
-    reader.read(_tempo);
-    reader.read(_swing);
+    reader.read(_name, NameLength + 1, Version5);
+    reader.read(_tempo.base);
+    reader.read(_swing.base);
     reader.read(_syncMeasure);
     reader.read(_scale);
     reader.read(_rootNote);
     reader.read(_recordMode);
+    reader.read(_cvGateInput, Version6);
 
     _clockSetup.read(context);
 
@@ -125,6 +151,10 @@ bool Project::read(ReadContext &context) {
     _playState.read(context);
     _routing.read(context);
     _midiOutput.read(context);
+
+    if (reader.dataVersion() >= Version5) {
+        readArray(context, UserScale::userScales);
+    }
 
     reader.read(_selectedTrackIndex);
     reader.read(_selectedPatternIndex);
@@ -176,7 +206,10 @@ fs::Error Project::read(const char *path) {
     ReadContext context = { reader };
     bool success = read(context);
 
-    header.readName(_name, sizeof(_name));
+    // TODO at some point we should remove this because name is also stored with data as of version 5
+    if (success) {
+        header.readName(_name, sizeof(_name));
+    }
 
     auto error = fileReader.finish();
     if (error == fs::OK && !success) {

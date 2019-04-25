@@ -22,6 +22,8 @@ public:
 
     void update();
 
+    int fps() const { return 50; }
+
     bool recvMidi(MidiPort port, const MidiMessage &message);
 
 private:
@@ -30,7 +32,7 @@ private:
     Model &_model;
     Engine &_engine;
     MidiPort _port;
-    Container<LaunchpadController> _container;
+    Container<LaunchpadController> _controllerContainer;
     Controller *_controller = nullptr;
 
     friend class Controller;

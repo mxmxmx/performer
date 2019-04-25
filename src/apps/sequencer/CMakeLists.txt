@@ -56,6 +56,8 @@ set(sources
     # ui/controllers/launchpad
     ui/controllers/launchpad/LaunchpadController.cpp
     ui/controllers/launchpad/LaunchpadDevice.cpp
+    ui/controllers/launchpad/LaunchpadMk2Device.cpp
+    ui/controllers/launchpad/LaunchpadProDevice.cpp
     # ui/pages
     ui/pages/AsteroidsPage.cpp
     ui/pages/BasePage.cpp

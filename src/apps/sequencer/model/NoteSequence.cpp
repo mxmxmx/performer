@@ -1,4 +1,5 @@
 #include "NoteSequence.h"
+#include "Project.h"
 
 #include "ModelUtils.h"
 
@@ -102,6 +103,8 @@ void NoteSequence::Step::setLayerValue(Layer layer, int value) {
 }
 
 void NoteSequence::Step::clear() {
+    _data0.raw = 0;
+    _data1.raw = 1;
     setGate(false);
     setSlide(false);
     setRetrigger(0);
@@ -125,6 +128,25 @@ void NoteSequence::Step::read(ReadContext &context) {
     auto &reader = context.reader;
     reader.read(_data0.raw);
     reader.read(_data1.raw);
+    if (reader.dataVersion() < Project::Version5) {
+        _data1.raw &= 0x1f;
+    }
+}
+
+void NoteSequence::writeRouted(Routing::Target target, int intValue, float floatValue) {
+    switch (target) {
+    case Routing::Target::RunMode:
+        setRunMode(Types::RunMode(intValue), true);
+        break;
+    case Routing::Target::FirstStep:
+        setFirstStep(intValue, true);
+        break;
+    case Routing::Target::LastStep:
+        setLastStep(intValue, true);
+        break;
+    default:
+        break;
+    }
 }
 
 void NoteSequence::clear() {
@@ -135,6 +157,9 @@ void NoteSequence::clear() {
     setRunMode(Types::RunMode::Forward);
     setFirstStep(0);
     setLastStep(15);
+
+    _routed.clear();
+
     clearSteps();
 }
 
@@ -142,6 +167,16 @@ void NoteSequence::clearSteps() {
     for (auto &step : _steps) {
         step.clear();
     }
+}
+
+bool NoteSequence::isEdited() const {
+    auto clearStep = Step();
+    for (const auto &step : _steps) {
+        if (step != clearStep) {
+            return true;
+        }
+    }
+    return false;
 }
 
 void NoteSequence::setGates(std::initializer_list<int> gates) {
@@ -177,9 +212,9 @@ void NoteSequence::write(WriteContext &context) const {
     writer.write(_rootNote);
     writer.write(_divisor);
     writer.write(_resetMeasure);
-    writer.write(_runMode);
-    writer.write(_firstStep);
-    writer.write(_lastStep);
+    writer.write(_runMode.base);
+    writer.write(_firstStep.base);
+    writer.write(_lastStep.base);
 
     writeArray(context, _steps);
 }
@@ -190,9 +225,9 @@ void NoteSequence::read(ReadContext &context) {
     reader.read(_rootNote);
     reader.read(_divisor);
     reader.read(_resetMeasure);
-    reader.read(_runMode);
-    reader.read(_firstStep);
-    reader.read(_lastStep);
+    reader.read(_runMode.base);
+    reader.read(_firstStep.base);
+    reader.read(_lastStep.base);
 
     readArray(context, _steps);
 }

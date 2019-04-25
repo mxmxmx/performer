@@ -35,12 +35,6 @@ BUTTON(Fill, LaunchpadDevice::FunctionRow, 6)
 BUTTON(Latch, LaunchpadDevice::FunctionRow, 1)
 BUTTON(Sync, LaunchpadDevice::FunctionRow, 2)
 
-// Colors
-static const LaunchpadDevice::Color Off(0, 0);
-static const LaunchpadDevice::Color Red(1, 0);
-static const LaunchpadDevice::Color Green(0, 1);
-static const LaunchpadDevice::Color Yellow(1, 1);
-
 struct LayerMapItem {
     uint8_t row;
     uint8_t col;
@@ -89,15 +83,23 @@ static const RangeMap *curveSequenceLayerRangeMap[] = {
     [int(CurveSequence::Layer::Max)]    = &curveMinMaxRangeMap,
 };
 
-LaunchpadController::LaunchpadController(ControllerManager &manager, Model &model, Engine &engine) :
+LaunchpadController::LaunchpadController(ControllerManager &manager, Model &model, Engine &engine, const ControllerInfo &info) :
     Controller(manager, model, engine),
     _project(model.project())
 {
-    _device.setSendMidiHandler([this] (const MidiMessage &message) {
+    if (info.productId == 0x0069) {
+        _device = _deviceContainer.create<LaunchpadMk2Device>();
+    } else if (info.productId == 0x0051) {
+        _device = _deviceContainer.create<LaunchpadProDevice>();
+    } else {
+        _device = _deviceContainer.create<LaunchpadDevice>();
+    }
+
+    _device->setSendMidiHandler([this] (const MidiMessage &message) {
         return sendMidi(message);
     });
 
-    _device.setButtonHandler([this] (int row, int col, bool state) {
+    _device->setButtonHandler([this] (int row, int col, bool state) {
         // DBG("button %d/%d - %d", row, col, state);
         if (state) {
             buttonDown(row, col);
@@ -109,18 +111,22 @@ LaunchpadController::LaunchpadController(ControllerManager &manager, Model &mode
     setMode(Mode::Sequence);
 }
 
+LaunchpadController::~LaunchpadController() {
+    _deviceContainer.destroy(_device);
+}
+
 void LaunchpadController::update() {
-    _device.clearLeds();
+    _device->clearLeds();
 
     CALL_MODE_FUNCTION(_mode, Draw)
 
     globalDraw();
 
-    _device.syncLeds();
+    _device->syncLeds();
 }
 
 void LaunchpadController::recvMidi(const MidiMessage &message) {
-    _device.recvMidi(message);
+    _device->recvMidi(message);
 }
 
 void LaunchpadController::setMode(Mode mode) {
@@ -137,7 +143,7 @@ void LaunchpadController::globalDraw() {
     if (buttonState<Shift>()) {
         for (int col = 0; col < 8; ++col) {
             bool selected = col == int(_mode) || col == 7;
-            setFunctionLed(col, selected ? Yellow : Off);
+            setFunctionLed(col, selected ? colorYellow() : colorOff());
         }
         mirrorButton<Play>();
     }
@@ -404,14 +410,14 @@ void LaunchpadController::sequenceDrawLayer() {
         for (int i = 0; i < noteSequenceLayerMapSize; ++i) {
             const auto &item = noteSequenceLayerMap[i];
             bool selected = i == int(_project.selectedNoteSequenceLayer());
-            setGridLed(item.row, item.col, selected ? Yellow : Green);
+            setGridLed(item.row, item.col, selected ? colorYellow() : colorGreen());
         }
         break;
     case Track::TrackMode::Curve:
         for (int i = 0; i < curveSequenceLayerMapSize; ++i) {
             const auto &item = curveSequenceLayerMap[i];
             bool selected = i == int(_project.selectedCurveSequenceLayer());
-            setGridLed(item.row, item.col, selected ? Yellow : Green);
+            setGridLed(item.row, item.col, selected ? colorYellow() : colorGreen());
         }
         break;
     default:
@@ -522,13 +528,34 @@ void LaunchpadController::patternDraw() {
     if (buttonState<Navigate>()) {
         navigationDraw(_pattern.navigation);
     } else {
-        // selected patterns
         for (int trackIndex = 0; trackIndex < 8; ++trackIndex) {
+            // draw edited patterns (note tracks -> dim yellow, curve tracks -> dim red)
+            for (int row = 0; row < 8; ++row) {
+                int patternIndex = row - _pattern.navigation.row * 8;
+                const auto &track = _project.track(trackIndex);
+
+                switch (track.trackMode()) {
+                case Track::TrackMode::Note:
+                    if (track.noteTrack().sequence(patternIndex).isEdited()) {
+                        setGridLed(row, trackIndex, colorYellow(1));
+                    }
+                    break;
+                case Track::TrackMode::Curve:
+                    if (track.curveTrack().sequence(patternIndex).isEdited()) {
+                        setGridLed(row, trackIndex, colorRed(1));
+                    }
+                    break;
+                default:
+                    break;
+                }
+            }
+
+            // draw selected (green) & requested (dim green) patterns
             int pattern = playState.trackState(trackIndex).pattern();
             int requestedPattern = playState.trackState(trackIndex).requestedPattern();
-            setGridLed(pattern + _pattern.navigation.row * 8, trackIndex, Green);
+            setGridLed(pattern + _pattern.navigation.row * 8, trackIndex, colorGreen());
             if (pattern != requestedPattern) {
-                setGridLed(requestedPattern + _pattern.navigation.row * 8, trackIndex, Yellow);
+                setGridLed(requestedPattern + _pattern.navigation.row * 8, trackIndex, colorGreen(1));
             }
         }
     }
@@ -598,7 +625,7 @@ void LaunchpadController::navigationDraw(const Navigation &navigation) {
     for (int row = navigation.bottom; row <= navigation.top; ++row) {
         for (int col = navigation.left; col <= navigation.right; ++col) {
             bool selected = row == navigation.row && col == navigation.col;
-            setGridLed(3 - row, col, selected ? Yellow : Green);
+            setGridLed(3 - row, col, selected ? colorYellow() : colorGreen());
         }
     }
 }
@@ -632,9 +659,9 @@ void LaunchpadController::drawTracksGateAndSelected(const Engine &engine, int se
         bool selected = track == selectedTrack;
         setSceneLed(
             track,
-            Color(
-                (mutedActivity || (selected && !unmutedActivity)) ? 1 : 0,
-                (unmutedActivity || (selected && !mutedActivity)) ? 1 : 0
+            color(
+                (mutedActivity || (selected && !unmutedActivity)),
+                (unmutedActivity || (selected && !mutedActivity))
             )
         );
     }
@@ -645,7 +672,7 @@ void LaunchpadController::drawTracksGateAndMute(const Engine &engine, const Play
         const auto &trackEngine = engine.trackEngine(track);
         setSceneLed(
             track,
-            Color(
+            color(
                 trackEngine.mute(),
                 trackEngine.activity()
             )
@@ -655,7 +682,7 @@ void LaunchpadController::drawTracksGateAndMute(const Engine &engine, const Play
 
 void LaunchpadController::drawRange(int first, int last, int selected) {
     for (int i = first; i <= last; ++i) {
-        setGridLed(i, i == selected ? Yellow : Green);
+        setGridLed(i, i == selected ? colorYellow() : colorGreen());
     }
 }
 
@@ -665,9 +692,9 @@ LaunchpadController::Color LaunchpadController::stepColor(bool active, bool curr
     // 0      1       red     1   0
     // 1      0       green   0   1
     // 1      1       red     1   0
-    int red = (!active || current) ? 1 : 0;
-    int green = current ? 0 : 1;
-    return Color(red, green);
+    bool red = (!active || current);
+    bool green = !current;
+    return color(red, green);
 }
 
 void LaunchpadController::drawNoteSequenceBits(const NoteSequence &sequence, NoteSequence::Layer layer, int currentStep) {
@@ -675,7 +702,7 @@ void LaunchpadController::drawNoteSequenceBits(const NoteSequence &sequence, Not
         for (int col = 0; col < 8; ++col) {
             int stepIndex = row * 8 + col;
             const auto &step = sequence.step(stepIndex);
-            setGridLed(row, col, Color(stepIndex == currentStep, step.layerValue(layer) ? 1 : 0));
+            setGridLed(row, col, color(stepIndex == currentStep, step.layerValue(layer) != 0));
         }
     }
 }
@@ -696,7 +723,7 @@ void LaunchpadController::drawNoteSequenceNotes(const NoteSequence &sequence, No
     for (int row = 0; row < 8; ++row) {
         if (modulo(row + ofs, octave) == 0) {
             for (int col = 0; col < 8; ++col) {
-            setGridLed(7 - row, col, Color(1, 1));
+            setGridLed(7 - row, col, colorYellow(1));
             }
         }
     }
@@ -727,11 +754,11 @@ void LaunchpadController::drawBar(int col, int value, bool active, bool current)
     int ofs = _sequence.navigation.row * 8;
     if (value >= 0) {
         for (int i = 0; i <= value; ++i) {
-            setGridLed((7 - i) + ofs, col, Yellow);
+            setGridLed((7 - i) + ofs, col, colorYellow());
         }
     } else {
         for (int i = 0; i >= value; --i) {
-            setGridLed((7 - i) + ofs, col, Yellow);
+            setGridLed((7 - i) + ofs, col, colorYellow());
         }
     }
     setGridLed((7 - value) + ofs, col, stepColor(active, current));
@@ -743,25 +770,25 @@ void LaunchpadController::drawBar(int col, int value, bool active, bool current)
 
 void LaunchpadController::setGridLed(int row, int col, Color color) {
     if (row >= 0 && row < 8 && col >= 0 && col < 8) {
-        _device.setLed(row, col, color);
+        _device->setLed(row, col, color);
     }
 }
 
 void LaunchpadController::setGridLed(int index, Color color) {
     if (index >= 0 && index < 64) {
-        _device.setLed(index / 8, index % 8, color);
+        _device->setLed(index / 8, index % 8, color);
     }
 }
 
 void LaunchpadController::setFunctionLed(int col, Color color) {
     if (col >= 0 && col < 8) {
-        _device.setLed(LaunchpadDevice::FunctionRow, col, color);
+        _device->setLed(LaunchpadDevice::FunctionRow, col, color);
     }
 }
 
 void LaunchpadController::setSceneLed(int col, Color color) {
     if (col >= 0 && col < 8) {
-        _device.setLed(LaunchpadDevice::SceneRow, col, color);
+        _device->setLed(LaunchpadDevice::SceneRow, col, color);
     }
 }
 
@@ -790,5 +817,5 @@ void LaunchpadController::buttonUp(int row, int col) {
 }
 
 bool LaunchpadController::buttonState(int row, int col) const {
-    return _device.buttonState(row, col);
+    return _device->buttonState(row, col);
 }

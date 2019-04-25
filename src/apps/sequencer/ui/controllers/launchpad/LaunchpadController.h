@@ -1,12 +1,17 @@
 #pragma once
 
 #include "LaunchpadDevice.h"
+#include "LaunchpadMk2Device.h"
+#include "LaunchpadProDevice.h"
 
 #include "ui/Controller.h"
 
+#include "core/utils/Container.h"
+
 class LaunchpadController : public Controller {
 public:
-    LaunchpadController(ControllerManager &manager, Model &model, Engine &engine);
+    LaunchpadController(ControllerManager &manager, Model &model, Engine &engine, const ControllerInfo &info);
+    virtual ~LaunchpadController();
 
     virtual void update() override;
 
@@ -14,6 +19,15 @@ public:
 
 private:
     using Color = LaunchpadDevice::Color;
+
+    inline Color color(bool red, bool green, int brightness = 3) const {
+        return Color(red ? brightness : 0, green ? brightness : 0);
+    }
+
+    inline Color colorOff() const { return Color(0, 0); }
+    inline Color colorRed(int brightness = 3) const { return Color(brightness, 0); }
+    inline Color colorGreen(int brightness = 3) const { return Color(0, brightness); }
+    inline Color colorYellow(int brightness = 3) const { return Color(brightness, brightness); }
 
     struct Button {
         int row;
@@ -122,13 +136,12 @@ private:
 
     template<typename T>
     void setButtonLed(Color color) {
-        _device.setLed(T::row, T::col, color);
+        _device->setLed(T::row, T::col, color);
     }
 
     template<typename T>
     void mirrorButton() {
-        auto color = buttonState(T::row, T::col) ? Color(1, 1) : Color(0, 0);
-        setButtonLed<T>(color);
+        setButtonLed<T>(buttonState(T::row, T::col) ? color(true, true) : color(false, false));
     }
 
     // Button handling
@@ -142,7 +155,8 @@ private:
     }
 
     Project &_project;
-    LaunchpadDevice _device;
+    Container<LaunchpadDevice, LaunchpadMk2Device, LaunchpadProDevice> _deviceContainer;
+    LaunchpadDevice *_device;
     Mode _mode = Mode::Sequence;
 
     struct {
