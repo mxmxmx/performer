@@ -9,6 +9,17 @@
 
 #include <array>
 
+/* use grades A, B rather than C, D for full 16 bit range */
+#define GRADE_AB 
+/* adjusted Vbias because didn't have the resistor values (as per BOM) on hand ... see defaultItemValue() below */
+#define OFFSET_0995 
+
+#ifdef GRADE_AB
+ #define MAX_VALUE 0x10000
+#else
+ #define MAX_VALUE 0x8000
+#endif
+
 class Calibration {
 public:
     //----------------------------------------
@@ -22,7 +33,7 @@ public:
         static constexpr int ItemsPerVolt = 1;
         static constexpr int ItemCount = (MaxVoltage - MinVoltage) * ItemsPerVolt + 1;
 
-        typedef std::array<uint16_t, ItemCount> ItemArray;
+        typedef std::array<uint32_t, ItemCount> ItemArray;
 
         // items
 
@@ -38,11 +49,11 @@ public:
               ItemArray &items()       { return _items; }
 
         int item(int index) const {
-            return _items[index] & 0x7fff;
+            return _items[index] & (MAX_VALUE - 0x1);
         }
 
         void setItem(int index, int value, bool doUpdate = true) {
-            _items[index] = (_items[index] & 0x8000) | clamp(value, 0, 0x7fff);
+            _items[index] = (_items[index] & MAX_VALUE) | clamp(value, 0, (MAX_VALUE - 0x1));
             if (doUpdate) {
                 update();
             }
@@ -56,18 +67,18 @@ public:
         void printItem(int index, StringBuilder &str) const {
             // inverted to improve usability
             if (userDefined(index)) {
-                str("%d", 0x7fff - item(index));
+                str("%d", (MAX_VALUE - 0x1) - item(index));
             } else {
-                str("%d (auto)", 0x7fff - item(index));
+                str("%d (auto)", (MAX_VALUE - 0x1) - item(index));
             }
         }
 
         bool userDefined(int index) const {
-            return _items[index] & 0x8000;
+            return _items[index] & MAX_VALUE;
         }
 
         void setUserDefined(int index, bool value) {
-            _items[index] = (_items[index] & 0x7fff) | (value ? 0x8000 : 0);
+            _items[index] = (_items[index] & (MAX_VALUE - 0x1)) | (value ? MAX_VALUE : 0);
             update();
         }
 
@@ -75,12 +86,18 @@ public:
             // In ideal DAC/OpAmp configuration we get:
             // 0     ->  5.17V
             // 32768 -> -5.25V
-            static constexpr float volts0 = 5.17f;
-            static constexpr float volts1 = -5.25f;
+            #ifdef OFFSET_0995
+            // used 49k9/33k --> Vbias = 0.995V
+             static constexpr float volts0 = 5.14f;
+             static constexpr float volts1 = -5.27f;
+            #else
+             static constexpr float volts0 = 5.17f;
+             static constexpr float volts1 = -5.25f;
+            #endif
 
             float volts = itemToVolts(index);
 
-            return clamp(int((volts - volts0) / (volts1 - volts0) * 32768), 0, 0x7fff);
+            return clamp(int((volts - volts0) / (volts1 - volts0) * MAX_VALUE), 0, (MAX_VALUE - 0x1));
         }
 
         uint16_t voltsToValue(float volts) const {
