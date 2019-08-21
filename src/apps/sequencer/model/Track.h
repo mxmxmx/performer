@@ -48,6 +48,17 @@ public:
         return nullptr;
     }
 
+    static uint8_t trackModeSerialize(TrackMode trackMode) {
+        switch (trackMode) {
+        case TrackMode::Note:   return 0;
+        case TrackMode::Curve:  return 1;
+        case TrackMode::MidiCv: return 2;
+        case TrackMode::Last:   break;
+        }
+        return 0;
+    }
+
+
     //----------------------------------------
     // Properties
     //----------------------------------------
@@ -120,11 +131,13 @@ public:
         ASSERT(_trackMode == other._trackMode, "invalid track mode");
         _linkTrack = other._linkTrack;
         _container = other._container;
+        setContainerTrackIndex(_trackIndex);
         return *this;
     }
 
 private:
-    void setTrackIndex(int trackIndex) { _trackIndex = trackIndex; }
+    void setTrackIndex(int trackIndex);
+    void setContainerTrackIndex(int trackIndex);
 
     // Note: always call through Project::setTrackMode
     void setTrackMode(TrackMode trackMode) {

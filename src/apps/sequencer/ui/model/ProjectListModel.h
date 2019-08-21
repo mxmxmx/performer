@@ -50,11 +50,13 @@ private:
         Name,
         Tempo,
         Swing,
+        TimeSignature,
         SyncMeasure,
         Scale,
         RootNote,
         RecordMode,
         CvGateInput,
+        CurveCvInput,
         Last
     };
 
@@ -63,11 +65,13 @@ private:
         case Name:              return "Name";
         case Tempo:             return "Tempo";
         case Swing:             return "Swing";
+        case TimeSignature:     return "Time Signature";
         case SyncMeasure:       return "Sync Measure";
         case Scale:             return "Scale";
         case RootNote:          return "Root Note";
         case RecordMode:        return "Record Mode";
         case CvGateInput:       return "CV/Gate Input";
+        case CurveCvInput:      return "Curve CV Input";
         case Last:              break;
         }
         return nullptr;
@@ -88,6 +92,9 @@ private:
         case Swing:
             _project.printSwing(str);
             break;
+        case TimeSignature:
+            _project.printTimeSignature(str);
+            break;
         case SyncMeasure:
             _project.printSyncMeasure(str);
             break;
@@ -102,6 +109,9 @@ private:
             break;
         case CvGateInput:
             _project.printCvGateInput(str);
+            break;
+        case CurveCvInput:
+            _project.printCurveCvInput(str);
             break;
         case Last:
             break;
@@ -118,6 +128,9 @@ private:
         case Swing:
             _project.editSwing(value, shift);
             break;
+        case TimeSignature:
+            _project.editTimeSignature(value, shift);
+            break;
         case SyncMeasure:
             _project.editSyncMeasure(value, shift);
             break;
@@ -132,6 +145,9 @@ private:
             break;
         case CvGateInput:
             _project.editCvGateInput(value, shift);
+            break;
+        case CurveCvInput:
+            _project.editCurveCvInput(value, shift);
             break;
         case Last:
             break;

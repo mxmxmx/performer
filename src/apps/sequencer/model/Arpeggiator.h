@@ -44,6 +44,23 @@ public:
         return nullptr;
     }
 
+    static uint8_t modeSerialize(Mode mode) {
+        switch (mode) {
+        case Mode::PlayOrder:   return 0;
+        case Mode::Up:          return 1;
+        case Mode::Down:        return 2;
+        case Mode::UpDown:      return 3;
+        case Mode::DownUp:      return 4;
+        case Mode::UpAndDown:   return 5;
+        case Mode::DownAndUp:   return 6;
+        case Mode::Converge:    return 7;
+        case Mode::Diverge:     return 8;
+        case Mode::Random:      return 9;
+        case Mode::Last:        break;
+        }
+        return 0;
+    }
+
     //----------------------------------------
     // Properties
     //----------------------------------------
@@ -97,7 +114,7 @@ public:
 
     int divisor() const { return _divisor; }
     void setDivisor(int divisor) {
-        _divisor = clamp(divisor, 1, 192);
+        _divisor = ModelUtils::clampDivisor(divisor);
     }
 
     void editDivisor(int value, bool shift) {
@@ -127,7 +144,7 @@ public:
 
     int octaves() const { return _octaves; }
     void setOctaves(int octaves) {
-        _octaves = clamp(octaves, 1, 5);
+        _octaves = clamp(octaves, -10, 10);
     }
 
     void editOctaves(int value, bool shift) {
@@ -135,7 +152,18 @@ public:
     }
 
     void printOctaves(StringBuilder &str) const {
-        str("%d", _octaves);
+        int value = octaves();
+        if (value > 5) {
+            str("Up Down %d", value - 5);
+        } else if (value > 0) {
+            str("Up %d", value);
+        } else if (value == 0) {
+            str("Off");
+        } else if (value >= -5) {
+            str("Down %d", -value);
+        } else if (value >= -10) {
+            str("Down Up %d", -(value + 5));
+        }
     }
 
     //----------------------------------------
@@ -151,7 +179,7 @@ private:
     bool _enabled;
     bool _hold;
     Mode _mode;
-    uint8_t _divisor;
+    uint16_t _divisor;
     uint8_t _gateLength;
-    uint8_t _octaves;
+    int8_t _octaves;
 };

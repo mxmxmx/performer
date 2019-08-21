@@ -18,6 +18,28 @@ static bool evalStepGate(const NoteSequence::Step &step, int probabilityBias) {
     return step.gate() && int(rng.nextRange(NoteSequence::GateProbability::Range)) <= probability;
 }
 
+// evaluate step condition
+static bool evalStepCondition(const NoteSequence::Step &step, int iteration, bool fill, bool &prevCondition) {
+    auto condition = step.condition();
+    switch (condition) {
+    case Types::Condition::Off:                                         return true;
+    case Types::Condition::Fill:        prevCondition = fill;           return prevCondition;
+    case Types::Condition::NotFill:     prevCondition = !fill;          return prevCondition;
+    case Types::Condition::Pre:                                         return prevCondition;
+    case Types::Condition::NotPre:                                      return !prevCondition;
+    case Types::Condition::First:       prevCondition = iteration == 0; return prevCondition;
+    case Types::Condition::NotFirst:    prevCondition = iteration != 0; return prevCondition;
+    default:
+        int index = int(condition);
+        if (index >= int(Types::Condition::Loop) && index < int(Types::Condition::Last)) {
+            auto loop = Types::conditionLoop(condition);
+            prevCondition = iteration % loop.base == loop.offset;
+            return prevCondition;
+        }
+    }
+    return true;
+}
+
 // evaluate step retrigger count
 static int evalStepRetrigger(const NoteSequence::Step &step, int probabilityBias) {
     int probability = clamp(step.retriggerProbability() + probabilityBias, -1, NoteSequence::RetriggerProbability::Max);
@@ -38,9 +60,14 @@ static int evalStepLength(const NoteSequence::Step &step, int lengthBias) {
     return length;
 }
 
+// evaluate transposition
+static int evalTransposition(const Scale &scale, int octave, int transpose) {
+    return octave * scale.notesPerOctave() + transpose;
+}
+
 // evaluate note voltage
 static float evalStepNote(const NoteSequence::Step &step, int probabilityBias, const Scale &scale, int rootNote, int octave, int transpose, bool useVariation = true) {
-    int note = step.note() + (scale.isChromatic() ? rootNote : 0) + octave * scale.notesPerOctave() + transpose;
+    int note = step.note() + (scale.isChromatic() ? rootNote : 0) + evalTransposition(scale, octave, transpose);
     int probability = clamp(step.noteVariationProbability() + probabilityBias, -1, NoteSequence::NoteVariationProbability::Max);
     if (useVariation && int(rng.nextRange(NoteSequence::NoteVariationProbability::Range)) <= probability) {
         int offset = step.noteVariationRange() == 0 ? 0 : rng.nextRange(std::abs(step.noteVariationRange()) + 1);
@@ -56,6 +83,7 @@ void NoteTrackEngine::reset() {
     _freeRelativeTick = 0;
     _sequenceState.reset();
     _currentStep = -1;
+    _prevCondition = false;
     _activity = false;
     _gateOutput = false;
     _cvOutput = 0.f;
@@ -63,8 +91,15 @@ void NoteTrackEngine::reset() {
     _slideActive = false;
     _gateQueue.clear();
     _cvQueue.clear();
+    _recordHistory.clear();
 
     changePattern();
+}
+
+void NoteTrackEngine::restart() {
+    _freeRelativeTick = 0;
+    _sequenceState.reset();
+    _currentStep = -1;
 }
 
 void NoteTrackEngine::tick(uint32_t tick) {
@@ -82,8 +117,8 @@ void NoteTrackEngine::tick(uint32_t tick) {
         }
     } else {
         uint32_t divisor = sequence.divisor() * (CONFIG_PPQN / CONFIG_SEQUENCE_PPQN);
-        uint32_t measureDivisor = (sequence.resetMeasure() * CONFIG_PPQN * 4);
-        uint32_t relativeTick = measureDivisor == 0 ? tick : tick % measureDivisor;
+        uint32_t resetDivisor = sequence.resetMeasure() * _engine.measureDivisor();
+        uint32_t relativeTick = resetDivisor == 0 ? tick : tick % resetDivisor;
 
         // handle reset measure
         if (relativeTick == 0) {
@@ -148,6 +183,8 @@ void NoteTrackEngine::update(float dt) {
     const auto &sequence = *_sequence;
     const auto &scale = sequence.selectedScale(_model.project().scale());
     int rootNote = sequence.selectedRootNote(_model.project().rootNote());
+    int octave = _noteTrack.octave();
+    int transpose = _noteTrack.transpose();
 
     // enable/disable step recording mode
     if (_engine.recording() && _model.project().recordMode() == Types::RecordMode::StepRecord) {
@@ -163,20 +200,13 @@ void NoteTrackEngine::update(float dt) {
     if (!running && (!recording || isStepRecordMode) && _monitorStepIndex >= 0) {
         // step monitoring (first priority)
         const auto &step = sequence.step(_monitorStepIndex);
-        int octave = _noteTrack.octave();
-        int transpose = _noteTrack.transpose();
         _cvOutputTarget = evalStepNote(step, 0, scale, rootNote, octave, transpose, false);
         _activity = _gateOutput = true;
         _monitorOverrideActive = true;
     } else if ((!running || !isStepRecordMode) && _recordHistory.isNoteActive()) {
         // midi monitoring (second priority)
-        if (scale.isChromatic()) {
-            int note = scale.noteFromVolts((_recordHistory.activeNote() - 60 - rootNote) * (1.f / 12.f));
-            _cvOutputTarget = scale.noteToVolts(note) + (rootNote / 12.f);
-        } else {
-            int note = scale.noteFromVolts((_recordHistory.activeNote() - 60) * (1.f / 12.f));
-            _cvOutputTarget = scale.noteToVolts(note);
-        }
+        int note = noteFromMidiNote(_recordHistory.activeNote()) + evalTransposition(scale, octave, transpose);
+        _cvOutputTarget = scale.noteToVolts(note);
         _activity = _gateOutput = true;
         _monitorOverrideActive = true;
     } else {
@@ -231,8 +261,10 @@ void NoteTrackEngine::triggerStep(uint32_t tick, uint32_t divisor) {
     int octave = _noteTrack.octave();
     int transpose = _noteTrack.transpose();
     int rotate = _noteTrack.rotate();
-    bool useFillGates = fill() && _noteTrack.fillMode() == Types::FillMode::Gates;
-    bool useFillSequence = fill() && _noteTrack.fillMode() == Types::FillMode::NextPattern;
+    bool fillStep = fill() && (rng.nextRange(100) < uint32_t(fillAmount()));
+    bool useFillGates = fillStep && _noteTrack.fillMode() == NoteTrack::FillMode::Gates;
+    bool useFillSequence = fillStep && _noteTrack.fillMode() == NoteTrack::FillMode::NextPattern;
+    bool useFillCondition = fillStep && _noteTrack.fillMode() == NoteTrack::FillMode::Condition;
 
     const auto &sequence = *_sequence;
     const auto &evalSequence = useFillSequence ? *_fillSequence : *_sequence;
@@ -243,26 +275,30 @@ void NoteTrackEngine::triggerStep(uint32_t tick, uint32_t divisor) {
 
     bool stepGate = evalStepGate(step, _noteTrack.gateProbabilityBias()) || useFillGates;
     if (stepGate) {
+        stepGate = evalStepCondition(step, _sequenceState.iteration(), useFillCondition, _prevCondition);
+    }
+
+    if (stepGate) {
         uint32_t stepLength = (divisor * evalStepLength(step, _noteTrack.lengthBias())) / NoteSequence::Length::Range;
         int stepRetrigger = evalStepRetrigger(step, _noteTrack.retriggerProbabilityBias());
         if (stepRetrigger > 1) {
             uint32_t retriggerLength = divisor / stepRetrigger;
             uint32_t retriggerOffset = 0;
             while (stepRetrigger-- > 0 && retriggerOffset <= stepLength) {
-                _gateQueue.pushReplace({ applySwing(tick + gateOffset + retriggerOffset), true });
-                _gateQueue.pushReplace({ applySwing(tick + gateOffset + retriggerOffset + retriggerLength / 2), false });
+                _gateQueue.pushReplace({ Groove::applySwing(tick + gateOffset + retriggerOffset, swing()), true });
+                _gateQueue.pushReplace({ Groove::applySwing(tick + gateOffset + retriggerOffset + retriggerLength / 2, swing()), false });
                 retriggerOffset += retriggerLength;
             }
         } else {
-            _gateQueue.pushReplace({ applySwing(tick + gateOffset), true });
-            _gateQueue.pushReplace({ applySwing(tick + gateOffset + stepLength), false });
+            _gateQueue.pushReplace({ Groove::applySwing(tick + gateOffset, swing()), true });
+            _gateQueue.pushReplace({ Groove::applySwing(tick + gateOffset + stepLength, swing()), false });
         }
     }
 
     if (stepGate || _noteTrack.cvUpdateMode() == NoteTrack::CvUpdateMode::Always) {
         const auto &scale = evalSequence.selectedScale(_model.project().scale());
         int rootNote = evalSequence.selectedRootNote(_model.project().rootNote());
-        _cvQueue.push({ applySwing(tick + gateOffset), evalStepNote(step, _noteTrack.noteProbabilityBias(), scale, rootNote, octave, transpose), step.slide() });
+        _cvQueue.push({ Groove::applySwing(tick + gateOffset, swing()), evalStepNote(step, _noteTrack.noteProbabilityBias(), scale, rootNote, octave, transpose), step.slide() });
     }
 }
 
@@ -271,8 +307,11 @@ void NoteTrackEngine::recordStep(uint32_t tick, uint32_t divisor) {
         return;
     }
 
-    auto writeStep = [this] (int stepIndex, int note, int length) {
+    bool stepWritten = false;
+
+    auto writeStep = [this, divisor, &stepWritten] (int stepIndex, int note, int lengthTicks) {
         auto &step = _sequence->step(stepIndex);
+        int length = (lengthTicks * NoteSequence::Length::Range) / divisor;
 
         step.setGate(true);
         step.setGateProbability(NoteSequence::GateProbability::Max);
@@ -284,6 +323,9 @@ void NoteTrackEngine::recordStep(uint32_t tick, uint32_t divisor) {
         step.setNote(noteFromMidiNote(note));
         step.setNoteVariationRange(0);
         step.setNoteVariationProbability(NoteSequence::NoteVariationProbability::Max);
+        step.setCondition(Types::Condition::Off);
+
+        stepWritten = true;
     };
 
     auto clearStep = [this] (int stepIndex) {
@@ -294,9 +336,7 @@ void NoteTrackEngine::recordStep(uint32_t tick, uint32_t divisor) {
 
     uint32_t stepStart = tick - divisor;
     uint32_t stepEnd = tick;
-    uint32_t margin = divisor / 3;
-
-    bool written = false;
+    uint32_t margin = divisor / 2;
 
     for (size_t i = 0; i < _recordHistory.size(); ++i) {
         if (_recordHistory[i].type != RecordHistory::Type::NoteOn) {
@@ -307,22 +347,27 @@ void NoteTrackEngine::recordStep(uint32_t tick, uint32_t divisor) {
         uint32_t noteStart = _recordHistory[i].tick;
         uint32_t noteEnd = i + 1 < _recordHistory.size() ? _recordHistory[i + 1].tick : tick;
 
-        if (noteStart <= stepStart + margin && noteEnd >= stepStart + margin) {
-            int length = std::min(noteEnd, stepEnd) - std::max(noteStart, stepStart);
-            length = (length * NoteSequence::Length::Range) / divisor;
+        if (noteStart >= stepStart - margin && noteStart < stepStart + margin) {
+            // note on during step start phase
+            if (noteEnd >= stepEnd) {
+                // note hold during step
+                int length = std::min(noteEnd, stepEnd) - stepStart;
+                writeStep(_sequenceState.prevStep(), note, length);
+            } else {
+                // note released during step
+                int length = noteEnd - noteStart;
+                writeStep(_sequenceState.prevStep(), note, length);
+            }
+        } else if (noteStart < stepStart && noteEnd > stepStart) {
+            // note on during previous step
+            int length = std::min(noteEnd, stepEnd) - stepStart;
             writeStep(_sequenceState.prevStep(), note, length);
-            written = true;
-            break;
         }
     }
 
-    if (isSelected() && !written && _model.project().recordMode() == Types::RecordMode::Overwrite) {
+    if (isSelected() && !stepWritten && _model.project().recordMode() == Types::RecordMode::Overwrite) {
         clearStep(_sequenceState.prevStep());
     }
-}
-
-uint32_t NoteTrackEngine::applySwing(uint32_t tick) const {
-    return Groove::swing(tick, CONFIG_PPQN / 4, swing());
 }
 
 int NoteTrackEngine::noteFromMidiNote(uint8_t midiNote) const {

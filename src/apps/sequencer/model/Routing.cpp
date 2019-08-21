@@ -1,6 +1,7 @@
 #include "Routing.h"
 
 #include "Project.h"
+#include "ProjectVersion.h"
 
 #include <cmath>
 
@@ -34,6 +35,7 @@ void Routing::MidiSource::clear() {
     _source.clear();
     _event = Event::ControlAbsolute;
     _controlNumberOrNote = 0;
+    _noteRange = 2;
 }
 
 void Routing::MidiSource::write(WriteContext &context) const {
@@ -41,6 +43,7 @@ void Routing::MidiSource::write(WriteContext &context) const {
     _source.write(context);
     writer.write(_event);
     writer.write(_controlNumberOrNote);
+    writer.write(_noteRange);
 }
 
 void Routing::MidiSource::read(ReadContext &context) {
@@ -48,13 +51,15 @@ void Routing::MidiSource::read(ReadContext &context) {
     _source.read(context);
     reader.read(_event);
     reader.read(_controlNumberOrNote);
+    reader.read(_noteRange, ProjectVersion::Version13);
 }
 
 bool Routing::MidiSource::operator==(const MidiSource &other) const {
     return (
         _source == other._source &&
         _event == other._event &&
-        _controlNumberOrNote == other._controlNumberOrNote
+        _controlNumberOrNote == other._controlNumberOrNote &&
+        (_event != Event::NoteRange || _noteRange == other._noteRange)
     );
 }
 
@@ -78,7 +83,7 @@ void Routing::Route::clear() {
 
 void Routing::Route::write(WriteContext &context) const {
     auto &writer = context.writer;
-    writer.write(_target);
+    writer.writeEnum(_target, targetSerialize);
     writer.write(_tracks);
     writer.write(_min);
     writer.write(_max);
@@ -93,7 +98,7 @@ void Routing::Route::write(WriteContext &context) const {
 
 void Routing::Route::read(ReadContext &context) {
     auto &reader = context.reader;
-    reader.read(_target);
+    reader.readEnum(_target, targetSerialize);
     reader.read(_tracks);
     reader.read(_min);
     reader.read(_max);
@@ -151,46 +156,37 @@ int Routing::findRoute(Target target, int trackIndex) const {
     return -1;
 }
 
-void Routing::setRouted(Target target, uint8_t tracks, uint16_t patterns, bool routed) {
-    if (isProjectTarget(target)) {
-        _project.setRouted(target, routed);
-    } else if (isTrackTarget(target) || isSequenceTarget(target)) {
-        for (int trackIndex = 0; trackIndex < CONFIG_TRACK_COUNT; ++trackIndex) {
-            if (tracks & (1<<trackIndex)) {
-                auto &track = _project.track(trackIndex);
-                if (track.trackMode() == Track::TrackMode::Note) {
-                    if (isTrackTarget(target)) {
-                        track.noteTrack().setRouted(target, routed);
-                    } else {
-                        for (int patternIndex = 0; patternIndex < CONFIG_PATTERN_COUNT; ++patternIndex) {
-                            track.noteTrack().sequence(patternIndex).setRouted(target, routed);
-                        }
-                    }
-                } else if (track.trackMode() == Track::TrackMode::Curve) {
-                    if (isTrackTarget(target)) {
-                        track.curveTrack().setRouted(target, routed);
-                    } else {
-                        for (int patternIndex = 0; patternIndex < CONFIG_PATTERN_COUNT; ++patternIndex) {
-                            track.curveTrack().sequence(patternIndex).setRouted(target, routed);
-                        }
-                    }
+int Routing::checkRouteConflict(const Route &editedRoute, const Route &existingRoute) const {
+    for (size_t i = 0; i < _routes.size(); ++i) {
+        const auto &route = _routes[i];
+        if (&route != &existingRoute && route.active() && route.target() == editedRoute.target()) {
+            if (isPerTrackTarget(route.target())) {
+                if ((route.tracks() & editedRoute.tracks()) != 0) {
+                    return i;
                 }
+            } else {
+                return i;
             }
         }
     }
+
+    return -1;
 }
 
-void Routing::writeTarget(Target target, uint8_t tracks, uint16_t patterns, float normalized) {
+void Routing::writeTarget(Target target, uint8_t tracks, float normalized) {
     float floatValue = denormalizeTargetValue(target, normalized);
     int intValue = std::round(floatValue);
 
     if (isProjectTarget(target)) {
         _project.writeRouted(target, intValue, floatValue);
+    } else if (isPlayStateTarget(target)) {
+        _project.playState().writeRouted(target, tracks, intValue, floatValue);
     } else if (isTrackTarget(target) || isSequenceTarget(target)) {
         for (int trackIndex = 0; trackIndex < CONFIG_TRACK_COUNT; ++trackIndex) {
             if (tracks & (1<<trackIndex)) {
                 auto &track = _project.track(trackIndex);
-                if (track.trackMode() == Track::TrackMode::Note) {
+                switch (track.trackMode()) {
+                case Track::TrackMode::Note:
                     if (isTrackTarget(target)) {
                         track.noteTrack().writeRouted(target, intValue, floatValue);
                     } else {
@@ -198,7 +194,8 @@ void Routing::writeTarget(Target target, uint8_t tracks, uint16_t patterns, floa
                             track.noteTrack().sequence(patternIndex).writeRouted(target, intValue, floatValue);
                         }
                     }
-                } else if (track.trackMode() == Track::TrackMode::Curve) {
+                    break;
+                case Track::TrackMode::Curve:
                     if (isTrackTarget(target)) {
                         track.curveTrack().writeRouted(target, intValue, floatValue);
                     } else {
@@ -206,6 +203,14 @@ void Routing::writeTarget(Target target, uint8_t tracks, uint16_t patterns, floa
                             track.curveTrack().sequence(patternIndex).writeRouted(target, intValue, floatValue);
                         }
                     }
+                    break;
+                case Track::TrackMode::MidiCv:
+                    if (isTrackTarget(target)) {
+                        track.midiCvTrack().writeRouted(target, intValue, floatValue);
+                    }
+                    break;
+                case Track::TrackMode::Last:
+                    break;
                 }
             }
         }
@@ -220,6 +225,40 @@ void Routing::read(ReadContext &context) {
     readArray(context, _routes);
 }
 
+static std::array<uint8_t, size_t(Routing::Target::Last)> routedSet;
+static_assert(sizeof(uint8_t) * 8 >= CONFIG_TRACK_COUNT, "track bits do not fit");
+
+bool Routing::isRouted(Target target, int trackIndex) {
+    size_t targetIndex = size_t(target);
+    if (isPerTrackTarget(target)) {
+        if (trackIndex >= 0 && trackIndex < CONFIG_TRACK_COUNT) {
+            return (routedSet[targetIndex] & (1 << trackIndex)) != 0;
+        }
+    } else {
+        return routedSet[targetIndex] != 0;
+    }
+    return false;
+}
+
+void Routing::setRouted(Target target, uint8_t tracks, bool routed) {
+    size_t targetIndex = size_t(target);
+    if (isPerTrackTarget(target)) {
+        if (routed) {
+            routedSet[targetIndex] |= tracks;
+        } else {
+            routedSet[targetIndex] &= ~tracks;
+        }
+    } else {
+        routedSet[targetIndex] = routed ? 1 : 0;
+    }
+}
+
+void Routing::printRouted(StringBuilder &str, Target target, int trackIndex) {
+    if (isRouted(target, trackIndex)) {
+        str("\x1a");
+    }
+}
+
 struct TargetInfo {
     int16_t min;
     int16_t max;
@@ -228,12 +267,20 @@ struct TargetInfo {
 };
 
 const TargetInfo targetInfos[int(Routing::Target::Last)] = {
-    // Target                                                   min     max     minDef  maxDef
     [int(Routing::Target::None)]                            = { 0,      0,      0,      0       },
+    // Engine targets
     [int(Routing::Target::Play)]                            = { 0,      1,      0,      1       },
     [int(Routing::Target::Record)]                          = { 0,      1,      0,      1       },
+    [int(Routing::Target::TapTempo)]                        = { 0,      1,      0,      1       },
+    // Project targets
     [int(Routing::Target::Tempo)]                           = { 20,     500,    100,    200     },
     [int(Routing::Target::Swing)]                           = { 50,     75,     50,     75      },
+    // PlayState targets
+    [int(Routing::Target::Mute)]                            = { 0,      1,      0,      1       },
+    [int(Routing::Target::Fill)]                            = { 0,      1,      0,      1       },
+    [int(Routing::Target::FillAmount)]                      = { 0,      100,    0,      100     },
+    [int(Routing::Target::Pattern)]                         = { 0,      15,     0,      15      },
+    // Track targets
     [int(Routing::Target::SlideTime)]                       = { 0,      100,    0,      100,    },
     [int(Routing::Target::Octave)]                          = { -10,    10,     -1,     1       },
     [int(Routing::Target::Transpose)]                       = { -60,    60,     -12,    12      },
@@ -242,7 +289,9 @@ const TargetInfo targetInfos[int(Routing::Target::Last)] = {
     [int(Routing::Target::RetriggerProbabilityBias)]        = { -8,     8,      -8,     8       },
     [int(Routing::Target::LengthBias)]                      = { -8,     8,      -8,     8       },
     [int(Routing::Target::NoteProbabilityBias)]             = { -8,     8,      -8,     8       },
-    [int(Routing::Target::Divisor)]                         = { 1,      192,    6,      24      },
+    [int(Routing::Target::ShapeProbabilityBias)]            = { -8,     8,      -8,     8       },
+    // Sequence targets
+    [int(Routing::Target::Divisor)]                         = { 1,      768,    6,      24      },
     [int(Routing::Target::RunMode)]                         = { 0,      5,      0,      5       },
     [int(Routing::Target::FirstStep)]                       = { 0,      63,     0,      63      },
     [int(Routing::Target::LastStep)]                        = { 0,      63,     0,      63      },
@@ -280,6 +329,7 @@ void Routing::printTargetValue(Routing::Target target, float normalized, StringB
         break;
     case Target::Swing:
     case Target::SlideTime:
+    case Target::FillAmount:
         str("%d%%", intValue);
         break;
     case Target::Octave:
@@ -301,7 +351,12 @@ void Routing::printTargetValue(Routing::Target target, float normalized, StringB
         break;
     case Target::FirstStep:
     case Target::LastStep:
+    case Target::Pattern:
         str("%d", intValue + 1);
+        break;
+    case Target::Mute:
+    case Target::Fill:
+        str(intValue ? "on" : "off");
         break;
     default:
         str("%d", intValue);

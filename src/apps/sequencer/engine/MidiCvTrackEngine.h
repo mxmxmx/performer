@@ -18,6 +18,7 @@ public:
     virtual Track::TrackMode trackMode() const override { return Track::TrackMode::MidiCv; }
 
     virtual void reset() override;
+    virtual void restart() override;
     virtual void tick(uint32_t tick) override;
     virtual void update(float dt) override;
 
@@ -28,6 +29,29 @@ public:
     virtual float cvOutput(int index) const override;
 
 private:
+    static constexpr size_t VoiceCount = 8;
+    static constexpr int RetriggerDelay = 2;
+
+    struct Voice {
+        uint32_t ticks = 0;
+        uint8_t note = 60;
+        uint8_t velocity = 0;
+        uint8_t pressure = 0;
+        int8_t output = -1;
+
+        void reset() {
+            ticks = 0;
+            output = -1;
+        }
+
+        void release() { ticks = 0; }
+
+        bool isActive() const { return ticks != 0; }
+        bool isAllocated() const { return output != -1; }
+    };
+
+    void updateActivity();
+
     void updateArpeggiator();
     void tickArpeggiator(uint32_t tick);
 
@@ -35,24 +59,14 @@ private:
     float valueToCv(int value) const;
     float pitchBendToCv(int value) const;
 
-    struct Voice;
-
     void resetVoices();
+
     void addVoice(int note, int velocity);
     void removeVoice(int note);
+    Voice *findVoice(int note);
 
-    Voice *allocateVoice(int note, int numVoices);
-    void freeVoice(int note, int numVoices);
-
-    Voice *findVoice(int begin, int end, int note);
-    Voice *lruVoice(int begin, int end);
-    Voice *mruVoice(int begin, int end);
-
+    void sortVoices();
     void printVoices();
-
-    void updateActivity();
-
-    static constexpr int RetriggerDelay = 2;
 
     const MidiCvTrack &_midiCvTrack;
 
@@ -61,18 +75,17 @@ private:
     float _arpeggiatorTime;
     uint32_t _arpeggiatorTick;
 
-    struct Voice {
-        uint32_t ticks = 0;
-        uint8_t note;
-        float pitchCv;
-        float velocityCv;
-        float pressureCv;
-    };
-
-    std::array<Voice, 8> _voices;
+    std::array<Voice, VoiceCount> _voices;
+    std::array<int8_t, VoiceCount> _voiceByOutput;
+    int8_t _nextOutput;
 
     bool _activity;
 
-    float _pitchBendCv;
-    float _channelPressureCv;
+    int16_t _pitchBend;
+    uint8_t _channelPressure;
+
+    // slides for pitch, only valid in monophonic mode
+    bool _slideActive;
+    float _pitchCvOutputTarget;
+    float _pitchCvOutput;
 };

@@ -1,6 +1,7 @@
 #include "PlayState.h"
 
 #include "Project.h"
+#include "ProjectVersion.h"
 
 // PlayState::TrackState
 
@@ -8,6 +9,7 @@ void PlayState::TrackState::clear() {
     _state = 0;
     _pattern = 0;
     _requestedPattern = 0;
+    _fillAmount = 100;
 }
 
 void PlayState::TrackState::write(WriteContext &context) const {
@@ -17,6 +19,7 @@ void PlayState::TrackState::write(WriteContext &context) const {
     // make sure to not write snapshot state
     uint8_t patternValue = _pattern < CONFIG_PATTERN_COUNT ? _pattern : 0;
     writer.write(patternValue);
+    writer.write(_fillAmount);
 }
 
 void PlayState::TrackState::read(ReadContext &context) {
@@ -25,6 +28,7 @@ void PlayState::TrackState::read(ReadContext &context) {
     reader.read(muteValue);
     setMute(muteValue);
     reader.read(_pattern);
+    reader.read(_fillAmount, ProjectVersion::Version12);
 }
 
 // PlayState::SongState
@@ -104,22 +108,14 @@ void PlayState::soloTrack(int track, ExecuteType executeType) {
     }
 }
 
-void PlayState::unsoloTrack(int track, ExecuteType executeType) {
-    for (int trackIndex = 0; trackIndex < CONFIG_TRACK_COUNT; ++trackIndex) {
-        if (track != trackIndex) {
-            unmuteTrack(trackIndex, executeType);
-        }
-    }
-}
-
-void PlayState::fillTrack(int track, bool fill) {
-    _trackStates[track].setFill(fill);
+void PlayState::fillTrack(int track, bool fill, bool hold) {
+    _trackStates[track].setFill(fill, hold);
     notify(Immediate);
 }
 
-void PlayState::fillAll(bool fill) {
+void PlayState::fillAll(bool fill, bool hold) {
     for (int track = 0; track < CONFIG_TRACK_COUNT; ++track) {
-        fillTrack(track, fill);
+        fillTrack(track, fill, hold);
     }
 }
 
@@ -255,4 +251,40 @@ void PlayState::selectTrackPatternUnsafe(int track, int pattern, ExecuteType exe
     trackState.setRequests(TrackState::patternRequestFromExecuteType(executeType));
     trackState.setRequestedPattern(pattern);
     notify(executeType);
+}
+
+void PlayState::writeRouted(Routing::Target target, uint8_t tracks, int intValue, float floatValue) {
+    bool active = intValue != 0;
+
+    for (int trackIndex = 0; trackIndex < CONFIG_TRACK_COUNT; ++trackIndex) {
+        if (tracks & (1 << trackIndex)) {
+            auto &trackState = this->trackState(trackIndex);
+            switch (target) {
+            case Routing::Target::Mute:
+                if (trackState.mute() != active || trackState.requestedMute() != active) {
+                    if (active) {
+                        muteTrack(trackIndex);
+                    } else {
+                        unmuteTrack(trackIndex);
+                    }
+                }
+                break;
+            case Routing::Target::Fill:
+                if (trackState.fill() != active) {
+                    fillTrack(trackIndex, active);
+                }
+                break;
+            case Routing::Target::FillAmount:
+                trackState.setFillAmount(intValue);
+                break;
+            case Routing::Target::Pattern:
+                if (trackState.pattern() != intValue || trackState.requestedPattern() != intValue) {
+                    selectTrackPattern(trackIndex, intValue);
+                }
+                break;
+            default:
+                break;
+            }
+        }
+    }
 }

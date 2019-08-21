@@ -1,5 +1,5 @@
 #include "NoteTrack.h"
-#include "Project.h"
+#include "ProjectVersion.h"
 
 void NoteTrack::writeRouted(Routing::Target target, int intValue, float floatValue) {
     switch (target) {
@@ -34,7 +34,7 @@ void NoteTrack::writeRouted(Routing::Target target, int intValue, float floatVal
 
 void NoteTrack::clear() {
     setPlayMode(Types::PlayMode::Aligned);
-    setFillMode(Types::FillMode::Gates);
+    setFillMode(FillMode::Gates);
     setCvUpdateMode(CvUpdateMode::Gate);
     setSlideTime(50);
     setOctave(0);
@@ -44,8 +44,6 @@ void NoteTrack::clear() {
     setRetriggerProbabilityBias(0);
     setLengthBias(0);
     setNoteProbabilityBias(0);
-
-    _routed.clear();
 
     for (auto &sequence : _sequences) {
         sequence.clear();
@@ -72,7 +70,7 @@ void NoteTrack::read(ReadContext &context) {
     auto reader = context.reader;
     reader.read(_playMode);
     reader.read(_fillMode);
-    reader.read(_cvUpdateMode, Project::Version4);
+    reader.read(_cvUpdateMode, ProjectVersion::Version4);
     reader.read(_slideTime.base);
     reader.read(_octave.base);
     reader.read(_transpose.base);

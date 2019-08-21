@@ -4,6 +4,7 @@
 
 #include "ui/LedPainter.h"
 #include "ui/painters/WindowPainter.h"
+#include "ui/painters/SequencePainter.h"
 
 #include "core/utils/StringBuilder.h"
 
@@ -40,7 +41,6 @@ void PerformerPage::draw(Canvas &canvas) {
     constexpr int Border = 4;
     constexpr int BorderRequested = 6;
 
-    float syncMeasureFraction = _engine.syncMeasureFraction();
     bool hasRequested = false;
 
     canvas.setFont(Font::Tiny);
@@ -58,14 +58,17 @@ void PerformerPage::draw(Canvas &canvas) {
 
         x += 8;
 
+        // draw track number (highlight when fill is active)
         canvas.setColor(trackState.fill() ? 0xf : 0x7);
         canvas.drawTextCentered(x, y - 2, w, 8, FixedStringBuilder<8>("T%d", trackIndex + 1));
 
         y += 8;
 
+        // draw outer rectangle (track activity)
         canvas.setColor(trackEngine.activity() ? 0xf : 0x7);
         canvas.drawRect(x, y, w, h);
 
+        // draw mutes and mute requests
         canvas.setColor(0xf);
         if (trackState.hasMuteRequest() && trackState.mute() != trackState.requestedMute()) {
             hasRequested = true;
@@ -73,11 +76,20 @@ void PerformerPage::draw(Canvas &canvas) {
         } else if (trackState.mute()) {
             canvas.fillRect(x + Border, y + Border, w - 2 * Border, h - 2 * Border);
         }
+
+        // draw sequence progress
+        SequencePainter::drawSequenceProgress(canvas, x, y + h + 2, w, 2, trackEngine.sequenceProgress());
+
+        // draw fill & fill amount amount
+        canvas.setColor(trackState.fill() ? 0x7 : 0x3);
+        canvas.fillRect(x, y + h + 6, w, 4);
+        canvas.setColor(trackState.fill() ? 0xf : 0x7);
+        canvas.fillRect(x, y + h + 6, (trackState.fillAmount() * w) / 100, 4);
     }
 
     if (playState.hasSyncedRequests() && hasRequested) {
         canvas.setColor(0xf);
-        canvas.hline(0, 10, syncMeasureFraction * Width);
+        canvas.hline(0, 10, _engine.syncFraction() * Width);
     }
 }
 
@@ -153,11 +165,17 @@ void PerformerPage::keyUp(KeyEvent &event) {
     }
 
     if (key.isStep()) {
+        closePage = true;
         updateFills();
         event.consume();
     }
 
-    bool canClose = _modal && !_latching && !_syncing && !globalKeyState()[Key::Performer];
+    bool stepKeyPressed = false;
+    for (int step = 0; step < 16; ++step) {
+        stepKeyPressed |= pageKeyState()[MatrixMap::fromStep(step)];
+    }
+
+    bool canClose = _modal && !_latching && !_syncing && !globalKeyState()[Key::Performer] && !stepKeyPressed;
     if (canClose && closePage) {
         close();
     }
@@ -169,10 +187,6 @@ void PerformerPage::keyPress(KeyPressEvent &event) {
 
     if (key.pageModifier()) {
         return;
-    }
-
-    if (key.isTrackSelect()) {
-        event.consume();
     }
 
     // use immediate by default
@@ -200,23 +214,30 @@ void PerformerPage::keyPress(KeyPressEvent &event) {
     }
 
     if (key.isTrackSelect()) {
-        playState.toggleMuteTrack(key.track(), executeType);
-        event.consume();
-    } else if (key.isStep() && key.step() < 8) {
-        playState.soloTrack(key.step(), executeType);
+        if (key.shiftModifier()) {
+            playState.soloTrack(key.track(), executeType);
+        } else {
+            playState.toggleMuteTrack(key.track(), executeType);
+        }
         event.consume();
     }
 }
 
 void PerformerPage::encoder(EncoderEvent &event) {
+    for (int trackIndex = 0; trackIndex < 8; ++trackIndex) {
+        if (pageKeyState()[MatrixMap::fromStep(trackIndex)]) {
+            _project.playState().trackState(trackIndex).editFillAmount(event.value(), false);
+        }
+    }
 }
 
 void PerformerPage::updateFills() {
     auto &playState = _project.playState();
     bool fillPressed = pageKeyState()[MatrixMap::fromFunction(int(Function::Fill))];
+    bool holdPressed = pageKeyState()[Key::Shift];
 
     for (int trackIndex = 0; trackIndex < CONFIG_TRACK_COUNT; ++trackIndex) {
         bool trackFill = pageKeyState()[MatrixMap::fromStep(8 + trackIndex)];
-        playState.fillTrack(trackIndex, trackFill || fillPressed);
+        playState.fillTrack(trackIndex, trackFill || fillPressed, holdPressed);
     }
 }

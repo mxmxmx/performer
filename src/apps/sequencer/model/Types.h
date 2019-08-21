@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/utils/StringBuilder.h"
+#include "core/math/Math.h"
 
 #include <array>
 
@@ -46,6 +47,27 @@ public:
         return nullptr;
     }
 
+    enum class CurveCvInput : uint8_t {
+        Off,
+        Cv1,
+        Cv2,
+        Cv3,
+        Cv4,
+        Last
+    };
+
+    static const char *curveCvInput(CurveCvInput curveCvInput) {
+        switch (curveCvInput) {
+        case CurveCvInput::Off:     return "Off";
+        case CurveCvInput::Cv1:     return "CV1";
+        case CurveCvInput::Cv2:     return "CV2";
+        case CurveCvInput::Cv3:     return "CV3";
+        case CurveCvInput::Cv4:     return "CV4";
+        case CurveCvInput::Last:    break;
+        }
+        return nullptr;
+    }
+
     // PlayMode
 
     enum class PlayMode : uint8_t {
@@ -59,25 +81,6 @@ public:
         case PlayMode::Aligned: return "Aligned";
         case PlayMode::Free:    return "Free";
         case PlayMode::Last:    break;
-        }
-        return nullptr;
-    }
-
-    // FillMode
-
-    enum class FillMode : uint8_t {
-        None,
-        Gates,
-        NextPattern,
-        Last
-    };
-
-    static const char *fillModeName(FillMode fillMode) {
-        switch (fillMode) {
-        case FillMode::None:        return "None";
-        case FillMode::Gates:       return "Gates";
-        case FillMode::NextPattern: return "Next Pattern";
-        case FillMode::Last:        break;
         }
         return nullptr;
     }
@@ -105,6 +108,75 @@ public:
         case RunMode::Last:         break;
         }
         return nullptr;
+    }
+
+    // Condition
+
+    enum class Condition : uint8_t {
+        Off,
+        Fill,
+        NotFill,
+        Pre,
+        NotPre,
+        First,
+        NotFirst,
+        Loop,
+        Loop2 = Loop,
+        Loop3 = Loop2 + 2,
+        Loop4 = Loop3 + 3,
+        Loop5 = Loop4 + 4,
+        Loop6 = Loop5 + 5,
+        Loop7 = Loop6 + 6,
+        Loop8 = Loop7 + 7,
+        Last = Loop8 + 8
+    };
+
+    struct ConditionInfo {
+        const char *name;
+        const char *short1;
+        const char *short2;
+    };
+
+    struct ConditionLoop {
+        uint8_t offset;
+        uint8_t base;
+    };
+
+    enum class ConditionFormat : uint8_t {
+        Long,
+        Short1,
+        Short2
+    };
+
+    static ConditionLoop conditionLoop(Condition condition) {
+        static const uint8_t offset[] = { 0, 1,   0, 1, 2,   0, 1, 2, 3,   0, 1, 2, 3, 4,   0, 1, 2, 3, 4, 5,   0, 1, 2, 3, 4, 5, 6,   0, 1, 2, 3, 4, 5, 6, 7 };
+        static const uint8_t base[]   = { 2, 2,   3, 3, 3,   4, 4, 4, 4,   5, 5, 5, 5, 5,   6, 6, 6, 6, 6, 6,   7, 7, 7, 7, 7, 7, 7,   8, 8, 8, 8, 8, 8, 8, 8 };
+        int index = int(condition);
+        if (index >= int(Condition::Loop) && index < int(Condition::Last)) {
+            index -= int(Condition::Loop);
+            return { offset[index], base[index] };
+        } else {
+            return { 0, 0 };
+        }
+    }
+
+    static void printCondition(StringBuilder &str, Condition condition, ConditionFormat format = ConditionFormat::Long) {
+        int index = int(condition);
+        if (index >= 0 && index < int(Condition::Loop)) {
+            const auto &info = conditionInfos[index];
+            switch (format) {
+            case ConditionFormat::Long: str(info.name); break;
+            case ConditionFormat::Short1: str(info.short1); break;
+            case ConditionFormat::Short2: str(info.short2); break;
+            }
+        } else if (index >= int(Condition::Loop) && index < int(Condition::Last)) {
+            auto loop = conditionLoop(condition);
+            switch (format) {
+            case ConditionFormat::Long: str("%d:%d", loop.offset + 1, loop.base); break;
+            case ConditionFormat::Short1: str("%d", loop.offset + 1); break;
+            case ConditionFormat::Short2: str("%d", loop.base); break;
+            }
+        }
     }
 
     // VoltageRange
@@ -143,10 +215,18 @@ public:
     struct VoltageRangeInfo {
         float lo;
         float hi;
+
+        float normalize(float value) const {
+            return clamp((value - lo) / (hi - lo), 0.f, 1.f);
+        }
+
+        float denormalize(float value) const {
+            return clamp(value, 0.f, 1.f) * (hi - lo) + lo;
+        }
     };
 
-    static const VoltageRangeInfo *voltageRangeInfo(VoltageRange voltageRange) {
-        return &voltageRangeInfos[int(voltageRange)];
+    static const VoltageRangeInfo &voltageRangeInfo(VoltageRange voltageRange) {
+        return voltageRangeInfos[int(voltageRange)];
     }
 
     // MidiPort
@@ -196,6 +276,7 @@ public:
     }
 
 private:
+    static const ConditionInfo conditionInfos[];
     static const VoltageRangeInfo voltageRangeInfos[];
 
 }; // namespace Types

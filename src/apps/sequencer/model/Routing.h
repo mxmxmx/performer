@@ -31,13 +31,22 @@ public:
         EngineFirst,
         Play = EngineFirst,
         Record,
-        EngineLast = Record,
+        TapTempo,
+        EngineLast = TapTempo,
 
         // Project targets
         ProjectFirst,
         Tempo = ProjectFirst,
         Swing,
         ProjectLast = Swing,
+
+        // PlayState targets
+        PlayStateFirst,
+        Mute = PlayStateFirst,
+        Fill,
+        FillAmount,
+        Pattern,
+        PlayStateLast = Pattern,
 
         // Track targets
         TrackFirst,
@@ -49,7 +58,8 @@ public:
         RetriggerProbabilityBias,
         LengthBias,
         NoteProbabilityBias,
-        TrackLast = NoteProbabilityBias,
+        ShapeProbabilityBias,
+        TrackLast = ShapeProbabilityBias,
 
         // Sequence targets
         SequenceFirst,
@@ -64,31 +74,72 @@ public:
 
     static const char *targetName(Target target) {
         switch (target) {
-        case Target::None:              return "None";
+        case Target::None:                      return "None";
 
-        case Target::Play:              return "Play";
-        case Target::Record:            return "Record";
+        case Target::Play:                      return "Play";
+        case Target::Record:                    return "Record";
+        case Target::TapTempo:                  return "Tap Tempo";
 
-        case Target::Tempo:             return "Tempo";
-        case Target::Swing:             return "Swing";
+        case Target::Tempo:                     return "Tempo";
+        case Target::Swing:                     return "Swing";
 
-        case Target::SlideTime:         return "Slide Time";
-        case Target::Octave:            return "Octave";
-        case Target::Transpose:         return "Transpose";
-        case Target::Rotate:            return "Rotate";
-        case Target::GateProbabilityBias: return "Gate P. Bias";
-        case Target::RetriggerProbabilityBias: return "Retrig P. Bias";
-        case Target::LengthBias:        return "Length Bias";
-        case Target::NoteProbabilityBias: return "Note P. Bias";
+        case Target::Mute:                      return "Mute";
+        case Target::Fill:                      return "Fill";
+        case Target::FillAmount:                return "Fill Amount";
+        case Target::Pattern:                   return "Pattern";
 
-        case Target::Divisor:           return "Divisor";
-        case Target::RunMode:           return "Run Mode";
-        case Target::FirstStep:         return "First Step";
-        case Target::LastStep:          return "Last Step";
+        case Target::SlideTime:                 return "Slide Time";
+        case Target::Octave:                    return "Octave";
+        case Target::Transpose:                 return "Transpose";
+        case Target::Rotate:                    return "Rotate";
+        case Target::GateProbabilityBias:       return "Gate P. Bias";
+        case Target::RetriggerProbabilityBias:  return "Retrig P. Bias";
+        case Target::LengthBias:                return "Length Bias";
+        case Target::NoteProbabilityBias:       return "Note P. Bias";
+        case Target::ShapeProbabilityBias:      return "Shape P. Bias";
 
-        case Target::Last:              break;
+        case Target::Divisor:                   return "Divisor";
+        case Target::RunMode:                   return "Run Mode";
+        case Target::FirstStep:                 return "First Step";
+        case Target::LastStep:                  return "Last Step";
+
+        case Target::Last:                      break;
         }
         return nullptr;
+    }
+
+    static uint8_t targetSerialize(Target target) {
+        switch (target) {
+        case Target::None:                      return 0;
+        case Target::Play:                      return 1;
+        case Target::Record:                    return 2;
+        case Target::Tempo:                     return 3;
+        case Target::Swing:                     return 4;
+        case Target::SlideTime:                 return 5;
+        case Target::Octave:                    return 6;
+        case Target::Transpose:                 return 7;
+        case Target::Rotate:                    return 8;
+        case Target::GateProbabilityBias:       return 9;
+        case Target::RetriggerProbabilityBias:  return 10;
+        case Target::LengthBias:                return 11;
+        case Target::NoteProbabilityBias:       return 12;
+        case Target::Divisor:                   return 13;
+        case Target::RunMode:                   return 14;
+        case Target::FirstStep:                 return 15;
+        case Target::LastStep:                  return 16;
+
+        case Target::Mute:                      return 17;
+        case Target::Fill:                      return 18;
+        case Target::FillAmount:                return 19;
+        case Target::Pattern:                   return 20;
+
+        case Target::TapTempo:                  return 21;
+
+        case Target::ShapeProbabilityBias:      return 22;
+
+        case Target::Last:                      break;
+        }
+        return 0;
     }
 
     static bool isEngineTarget(Target target) {
@@ -99,12 +150,20 @@ public:
         return target >= Target::ProjectFirst && target <= Target::ProjectLast;
     }
 
+    static bool isPlayStateTarget(Target target) {
+        return target >= Target::PlayStateFirst && target <= Target::PlayStateLast;
+    }
+
     static bool isTrackTarget(Target target) {
         return target >= Target::TrackFirst && target <= Target::TrackLast;
     }
 
     static bool isSequenceTarget(Target target) {
         return target >= Target::SequenceFirst && target <= Target::SequenceLast;
+    }
+
+    static bool isPerTrackTarget(Target target) {
+        return isPlayStateTarget(target) || isTrackTarget(target) || isSequenceTarget(target);
     }
 
     enum class Source : uint8_t {
@@ -196,6 +255,7 @@ public:
             NoteMomentary,
             NoteToggle,
             NoteVelocity,
+            NoteRange,
             Last,
         };
 
@@ -207,6 +267,7 @@ public:
             case Event::NoteMomentary:  return "Note Momentary";
             case Event::NoteToggle:     return "Note Toggle";
             case Event::NoteVelocity:   return "Note Velocity";
+            case Event::NoteRange:      return "Note Range";
             case Event::Last:           break;
             }
             return nullptr;
@@ -236,21 +297,6 @@ public:
             return int(_event) <= int(Event::LastControlEvent);
         }
 
-        // note
-
-        int note() const { return _controlNumberOrNote; }
-        void setNote(int note) {
-            _controlNumberOrNote = clamp(note, 0, 127);
-        }
-
-        void editNote(int value, bool shift) {
-            setNote(note() + value);
-        }
-
-        void printNote(StringBuilder &str) const {
-            Types::printMidiNote(str, note());
-        }
-
         // controlNumber
 
         int controlNumber() const { return _controlNumberOrNote; }
@@ -266,6 +312,36 @@ public:
             str("%d", note());
         }
 
+        // note
+
+        int note() const { return _controlNumberOrNote; }
+        void setNote(int note) {
+            _controlNumberOrNote = clamp(note, 0, 127);
+        }
+
+        void editNote(int value, bool shift) {
+            setNote(note() + value);
+        }
+
+        void printNote(StringBuilder &str) const {
+            Types::printMidiNote(str, note());
+        }
+
+        // noteRange
+
+        int noteRange() const { return _noteRange; }
+        void setNoteRange(int noteRange) {
+            _noteRange = clamp(noteRange, 2, 64);
+        }
+
+        void editNoteRange(int value, bool shift) {
+            setNoteRange(noteRange() + value);
+        }
+
+        void printNoteRange(StringBuilder &str) const {
+            str("%d", noteRange());
+        }
+
         void clear();
 
         void write(WriteContext &context) const;
@@ -277,6 +353,7 @@ public:
         MidiSourceConfig _source;
         Event _event;
         uint8_t _controlNumberOrNote;
+        uint8_t _noteRange;
     };
 
     class Route {
@@ -302,21 +379,24 @@ public:
 
         // tracks
 
-        uint8_t tracks() const { return _tracks; }
+        uint8_t tracks() const { return isPerTrackTarget(_target) ? _tracks : 0; }
         void setTracks(uint8_t tracks) {
-            _tracks = tracks;
+            if (isPerTrackTarget(_target)) {
+                _tracks = tracks;
+            }
         }
 
         void toggleTrack(int trackIndex) {
-            if (tracks() & (1<<trackIndex)) {
-                setTracks(tracks() & ~(1<<trackIndex));
+            uint8_t trackBit = (1<<trackIndex);
+            if (tracks() & trackBit) {
+                setTracks(tracks() & ~trackBit);
             } else {
-                setTracks(tracks() | (1<<trackIndex));
+                setTracks(tracks() | trackBit);
             }
         }
 
         void printTracks(StringBuilder &str) const {
-            if (isTrackTarget(_target) || isSequenceTarget(_target)) {
+            if (isPerTrackTarget(_target)) {
                 for (int i = 0; i < CONFIG_TRACK_COUNT; ++i) {
                     str("%c", (_tracks & (1<<i)) ? 'X' : '-');
                 }
@@ -436,15 +516,20 @@ public:
 
     int findEmptyRoute() const;
     int findRoute(Target target, int trackIndex) const;
+    int checkRouteConflict(const Route &editedRoute, const Route &existingRoute) const;
 
-    void setRouted(Target target, uint8_t tracks, uint16_t patterns, bool routed);
-    void writeTarget(Target target, uint8_t tracks, uint16_t patterns, float normalized);
+    void writeTarget(Target target, uint8_t tracks, float normalized);
 
     void write(WriteContext &context) const;
     void read(ReadContext &context);
 
     bool isDirty() const { return _dirty; }
     void clearDirty() { _dirty = false; }
+
+    // global state for keeping active set of routed targets
+    static bool isRouted(Target target, int trackIndex = -1);
+    static void setRouted(Target target, uint8_t tracks, bool routed);
+    static void printRouted(StringBuilder &str, Target target, int trackIndex = -1);
 
 private:
     static float normalizeTargetValue(Target target, float value);
@@ -471,28 +556,4 @@ struct Routable {
 
     inline void set(T value, bool selectRouted) { values[selectRouted] = value; }
     inline T get(bool selectRouted) const { return values[selectRouted]; }
-};
-
-// Routable set.
-template<Routing::Target First, Routing::Target Last>
-struct RoutableSet {
-    inline void clear() {
-        _set.reset();
-    }
-
-    inline bool has(Routing::Target target) const {
-        return _set.test(int(target) - int(First));
-    }
-
-    inline void set(Routing::Target target, bool routed) {
-        _set.set(int(target) - int(First), routed);
-    }
-
-    inline void print(StringBuilder &str, Routing::Target target) const {
-        if (has(target)) {
-            str("\x1a");
-        }
-    }
-private:
-    std::bitset<int(Last) - int(First) + 1> _set;
 };

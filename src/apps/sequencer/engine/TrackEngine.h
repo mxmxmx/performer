@@ -60,6 +60,7 @@ public:
     // sequencer control
 
     virtual void reset() = 0;
+    virtual void restart() = 0;
     virtual void tick(uint32_t tick) = 0;
     virtual void update(float dt) = 0;
 
@@ -76,6 +77,8 @@ public:
     virtual bool gateOutput(int index) const = 0;
     virtual float cvOutput(int index) const = 0;
 
+    virtual float sequenceProgress() const { return -1.f; }
+
     // helpers
 
     bool isSelected() const { return _model.project().selectedTrackIndex() == _track.trackIndex(); }
@@ -85,6 +88,7 @@ public:
     int pattern() const { return _trackState.pattern(); }
     bool mute() const { return _trackState.mute(); }
     bool fill() const { return _trackState.fill(); }
+    int fillAmount() const { return _trackState.fillAmount(); }
 
 protected:
     Engine &_engine;

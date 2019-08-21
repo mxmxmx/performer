@@ -7,7 +7,7 @@
 #define CONFIG_VERSION_NAME             "PER|FORMER SEQUENCER"
 #define CONFIG_VERSION_MAJOR            0
 #define CONFIG_VERSION_MINOR            1
-#define CONFIG_VERSION_REVISION         19
+#define CONFIG_VERSION_REVISION         31
 
 // Task priorities
 #define CONFIG_DRIVER_TASK_PRIORITY     5
@@ -50,7 +50,7 @@
 // Model
 #define CONFIG_PATTERN_COUNT            16
 #define CONFIG_SNAPSHOT_COUNT           1
-#define CONFIG_SONG_SLOT_COUNT          16
+#define CONFIG_SONG_SLOT_COUNT          64
 #define CONFIG_TRACK_COUNT              8
 #define CONFIG_STEP_COUNT               64
 #define CONFIG_ROUTE_COUNT              16

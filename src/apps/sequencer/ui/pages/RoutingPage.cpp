@@ -84,9 +84,14 @@ void RoutingPage::keyPress(KeyPressEvent &event) {
             break;
         case Function::Commit:
             _engine.midiLearn().stop();
-            *_route = _editRoute;
-            setEdit(false);
-            showMessage("ROUTE CHANGED");
+            int conflict = _project.routing().checkRouteConflict(_editRoute, *_route);
+            if (conflict >= 0) {
+                showMessage(FixedStringBuilder<64>("ROUTE SETTINGS CONFLICT WITH ROUTE %d", conflict + 1));
+            } else {
+                *_route = _editRoute;
+                setEdit(false);
+                showMessage("ROUTE CHANGED");
+            }
             break;
         }
         event.consume();
@@ -117,7 +122,7 @@ void RoutingPage::showRoute(int routeIndex, const Routing::Route *initialValue) 
 void RoutingPage::drawCell(Canvas &canvas, int row, int column, int x, int y, int w, int h) {
     if (row == int(RouteListModel::Item::Tracks) &&
         column == 1 &&
-        (Routing::isTrackTarget(_editRoute.target()) || Routing::isSequenceTarget(_editRoute.target()))
+        Routing::isPerTrackTarget(_editRoute.target())
     ) {
         canvas.setFont(Font::Tiny);
         canvas.setBlendMode(BlendMode::Set);

@@ -1,5 +1,5 @@
 #include "NoteSequence.h"
-#include "Project.h"
+#include "ProjectVersion.h"
 
 #include "ModelUtils.h"
 
@@ -25,6 +25,7 @@ Types::LayerRange NoteSequence::layerRange(Layer layer) {
     CASE(Note)
     CASE(NoteVariationRange)
     CASE(NoteVariationProbability)
+    CASE(Condition)
     case Layer::Last:
         break;
     }
@@ -60,6 +61,8 @@ int NoteSequence::Step::layerValue(Layer layer) const {
         return noteVariationRange();
     case Layer::NoteVariationProbability:
         return noteVariationProbability();
+    case Layer::Condition:
+        return int(condition());
     case Layer::Last:
         break;
     }
@@ -105,6 +108,9 @@ void NoteSequence::Step::setLayerValue(Layer layer, int value) {
     case Layer::NoteVariationProbability:
         setNoteVariationProbability(value);
         break;
+    case Layer::Condition:
+        setCondition(Types::Condition(value));
+        break;
     case Layer::Last:
         break;
     }
@@ -125,6 +131,7 @@ void NoteSequence::Step::clear() {
     setNote(0);
     setNoteVariationRange(0);
     setNoteVariationProbability(NoteVariationProbability::Max);
+    setCondition(Types::Condition::Off);
 }
 
 void NoteSequence::Step::write(WriteContext &context) const {
@@ -137,11 +144,14 @@ void NoteSequence::Step::read(ReadContext &context) {
     auto &reader = context.reader;
     reader.read(_data0.raw);
     reader.read(_data1.raw);
-    if (reader.dataVersion() < Project::Version5) {
+    if (reader.dataVersion() < ProjectVersion::Version5) {
         _data1.raw &= 0x1f;
     }
-    if (reader.dataVersion() < Project::Version7) {
+    if (reader.dataVersion() < ProjectVersion::Version7) {
         setGateOffset(0);
+    }
+    if (reader.dataVersion() < ProjectVersion::Version12) {
+        setCondition(Types::Condition(0));
     }
 }
 
@@ -172,8 +182,6 @@ void NoteSequence::clear() {
     setRunMode(Types::RunMode::Forward);
     setFirstStep(0);
     setLastStep(15);
-
-    _routed.clear();
 
     clearSteps();
 }
@@ -238,7 +246,11 @@ void NoteSequence::read(ReadContext &context) {
     auto &reader = context.reader;
     reader.read(_scale);
     reader.read(_rootNote);
-    reader.read(_divisor.base);
+    if (reader.dataVersion() < ProjectVersion::Version10) {
+        reader.readAs<uint8_t>(_divisor.base);
+    } else {
+        reader.read(_divisor.base);
+    }
     reader.read(_resetMeasure);
     reader.read(_runMode.base);
     reader.read(_firstStep.base);

@@ -14,6 +14,27 @@ public:
 
     typedef std::array<CurveSequence, CONFIG_PATTERN_COUNT + CONFIG_SNAPSHOT_COUNT> CurveSequenceArray;
 
+    // FillMode
+
+    enum class FillMode : uint8_t {
+        None,
+        Variation,
+        NextPattern,
+        Invert,
+        Last
+    };
+
+    static const char *fillModeName(FillMode fillMode) {
+        switch (fillMode) {
+        case FillMode::None:        return "None";
+        case FillMode::Variation:   return "Variation";
+        case FillMode::NextPattern: return "Next Pattern";
+        case FillMode::Invert:      return "Invert";
+        case FillMode::Last:        break;
+        }
+        return nullptr;
+    }
+
     //----------------------------------------
     // Properties
     //----------------------------------------
@@ -35,8 +56,8 @@ public:
 
     // fillMode
 
-    Types::FillMode fillMode() const { return _fillMode; }
-    void setFillMode(Types::FillMode fillMode) {
+    FillMode fillMode() const { return _fillMode; }
+    void setFillMode(FillMode fillMode) {
         _fillMode = ModelUtils::clampedEnum(fillMode);
     }
 
@@ -45,7 +66,7 @@ public:
     }
 
     void printFillMode(StringBuilder &str) const {
-        str(Types::fillModeName(fillMode()));
+        str(fillModeName(fillMode()));
     }
 
     // slideTime
@@ -62,7 +83,7 @@ public:
     }
 
     void printSlideTime(StringBuilder &str) const {
-        _routed.print(str, Routing::Target::SlideTime);
+        printRouted(str, Routing::Target::SlideTime);
         str("%d%%", slideTime());
     }
 
@@ -80,8 +101,44 @@ public:
     }
 
     void printRotate(StringBuilder &str) const {
-        _routed.print(str, Routing::Target::Rotate);
+        printRouted(str, Routing::Target::Rotate);
         str("%+d", rotate());
+    }
+
+    // shapeProbabilityBias
+
+    int shapeProbabilityBias() const { return _shapeProbabilityBias.get(isRouted(Routing::Target::ShapeProbabilityBias)); }
+    void setShapeProbabilityBias(int shapeProbabilityBias, bool routed = false) {
+        _shapeProbabilityBias.set(clamp(shapeProbabilityBias, -8, 8), routed);
+    }
+
+    void editShapeProbabilityBias(int value, bool shift) {
+        if (!isRouted(Routing::Target::ShapeProbabilityBias)) {
+            setShapeProbabilityBias(shapeProbabilityBias() + value);
+        }
+    }
+
+    void printShapeProbabilityBias(StringBuilder &str) const {
+        printRouted(str, Routing::Target::ShapeProbabilityBias);
+        str("%+.1f%%", shapeProbabilityBias() * 12.5f);
+    }
+
+    // gateProbabilityBias
+
+    int gateProbabilityBias() const { return _gateProbabilityBias.get(isRouted(Routing::Target::GateProbabilityBias)); }
+    void setGateProbabilityBias(int gateProbabilityBias, bool routed = false) {
+        _gateProbabilityBias.set(clamp(gateProbabilityBias, -CurveSequence::GateProbability::Range, CurveSequence::GateProbability::Range), routed);
+    }
+
+    void editGateProbabilityBias(int value, bool shift) {
+        if (!isRouted(Routing::Target::GateProbabilityBias)) {
+            setGateProbabilityBias(gateProbabilityBias() + value);
+        }
+    }
+
+    void printGateProbabilityBias(StringBuilder &str) const {
+        printRouted(str, Routing::Target::GateProbabilityBias);
+        str("%+.1f%%", gateProbabilityBias() * 12.5f);
     }
 
     // sequences
@@ -96,8 +153,8 @@ public:
     // Routing
     //----------------------------------------
 
-    inline bool isRouted(Routing::Target target) const { return _routed.has(target); }
-    inline void setRouted(Routing::Target target, bool routed) { _routed.set(target, routed); }
+    inline bool isRouted(Routing::Target target) const { return Routing::isRouted(target, _trackIndex); }
+    inline void printRouted(StringBuilder &str, Routing::Target target) const { Routing::printRouted(str, target, _trackIndex); }
     void writeRouted(Routing::Target target, int intValue, float floatValue);
 
     //----------------------------------------
@@ -112,12 +169,22 @@ public:
     void read(ReadContext &context);
 
 private:
+    void setTrackIndex(int trackIndex) {
+        _trackIndex = trackIndex;
+        for (auto &sequence : _sequences) {
+            sequence.setTrackIndex(trackIndex);
+        }
+    }
+
+    int8_t _trackIndex = -1;
     Types::PlayMode _playMode;
-    Types::FillMode _fillMode;
+    FillMode _fillMode;
     Routable<uint8_t> _slideTime;
     Routable<int8_t> _rotate;
-
-    RoutableSet<Routing::Target::TrackFirst, Routing::Target::TrackLast> _routed;
+    Routable<int8_t> _shapeProbabilityBias;
+    Routable<int8_t> _gateProbabilityBias;
 
     CurveSequenceArray _sequences;
+
+    friend class Track;
 };

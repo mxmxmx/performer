@@ -3,6 +3,7 @@
 #include "Config.h"
 #include "Observable.h"
 #include "Types.h"
+#include "TimeSignature.h"
 #include "ClockSetup.h"
 #include "Track.h"
 #include "Song.h"
@@ -19,28 +20,6 @@
 
 class Project {
 public:
-    // added NoteTrack::cvUpdateMode
-    static constexpr uint32_t Version4 = 4;
-
-    // added storing user scales with project
-    // added Project::name
-    // added UserScale::name
-    static constexpr uint32_t Version5 = 5;
-
-    // added Project::cvGateInput
-    static constexpr uint32_t Version6 = 6;
-
-    // added NoteSequence::Step::gateOffset
-    static constexpr uint32_t Version7 = 7;
-
-    // added CurveTrack::slideTime
-    static constexpr uint32_t Version8 = 8;
-
-    // added MidiCvTrack::arpeggiator
-    static constexpr uint32_t Version9 = 9;
-
-    static constexpr uint32_t Version = Version9;
-
     //----------------------------------------
     // Types
     //----------------------------------------
@@ -88,7 +67,7 @@ public:
     }
 
     void printTempo(StringBuilder &str) const {
-        _routed.print(str, Routing::Target::Tempo);
+        printRouted(str, Routing::Target::Tempo);
         str("%.1f", tempo());
     }
 
@@ -100,14 +79,29 @@ public:
     }
 
     void editSwing(int value, bool shift) {
-        if (!isRouted(Routing::Target::Tempo)) {
+        if (!isRouted(Routing::Target::Swing)) {
             setSwing(ModelUtils::adjustedByStep(swing(), value, 5, !shift));
         }
     }
 
     void printSwing(StringBuilder &str) const {
-        _routed.print(str, Routing::Target::Swing);
+        printRouted(str, Routing::Target::Swing);
         str("%d%%", swing());
+    }
+
+    // timeSignature
+
+    TimeSignature timeSignature() const { return _timeSignature; }
+    void setTimeSignature(TimeSignature timeSignature) {
+        _timeSignature = timeSignature;
+    }
+
+    void editTimeSignature(int value, bool shift) {
+        _timeSignature.edit(value, shift);
+    }
+
+    void printTimeSignature(StringBuilder &str) const {
+        _timeSignature.print(str);
     }
 
     // syncMeasure
@@ -122,7 +116,7 @@ public:
     }
 
     void printSyncMeasure(StringBuilder &str) const {
-        str("%d", syncMeasure());
+        str("%d %s", syncMeasure(), syncMeasure() > 1 ? "bars" : "bar");
     }
 
     // scale
@@ -188,6 +182,23 @@ public:
     void printCvGateInput(StringBuilder &str) const {
         str(Types::cvGateInputName(_cvGateInput));
     }
+
+    // curveCvInput
+
+    Types::CurveCvInput curveCvInput() const { return _curveCvInput; }
+    void setCurveCvInput(Types::CurveCvInput curveCvInput) {
+        _curveCvInput = ModelUtils::clampedEnum(curveCvInput);
+    }
+
+    void editCurveCvInput(int value, bool shift) {
+        _curveCvInput = ModelUtils::adjustedEnum(_curveCvInput, value);
+    }
+
+    void printCurveCvInput(StringBuilder &str) const {
+        str(Types::curveCvInput(_curveCvInput));
+    }
+
+    // curveMidiInput
 
     // clockSetup
 
@@ -326,8 +337,8 @@ public:
     // Routing
     //----------------------------------------
 
-    inline bool isRouted(Routing::Target target) const { return _routed.has(target); }
-    inline void setRouted(Routing::Target target, bool routed) { _routed.set(target, routed); }
+    inline bool isRouted(Routing::Target target) const { return Routing::isRouted(target); }
+    inline void printRouted(StringBuilder &str, Routing::Target target) const { Routing::printRouted(str, target); }
     void writeRouted(Routing::Target target, int intValue, float floatValue);
 
     //----------------------------------------
@@ -366,13 +377,13 @@ private:
     char _name[NameLength + 1];
     Routable<float> _tempo;
     Routable<uint8_t> _swing;
+    TimeSignature _timeSignature;
     uint8_t _syncMeasure;
     uint8_t _scale;
     uint8_t _rootNote;
     Types::RecordMode _recordMode;
     Types::CvGateInput _cvGateInput;
-
-    RoutableSet<Routing::Target::ProjectFirst, Routing::Target::ProjectLast> _routed;
+    Types::CurveCvInput _curveCvInput;
 
     ClockSetup _clockSetup;
     TrackArray _tracks;

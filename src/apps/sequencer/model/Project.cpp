@@ -1,4 +1,5 @@
 #include "Project.h"
+#include "ProjectVersion.h"
 
 #include "core/fs/FileWriter.h"
 #include "core/fs/FileReader.h"
@@ -32,13 +33,13 @@ void Project::clear() {
     StringUtils::copy(_name, "INIT", sizeof(_name));
     setTempo(120.f);
     setSwing(50);
+    setTimeSignature(TimeSignature());
     setSyncMeasure(1);
     setScale(0);
     setRootNote(0);
     setRecordMode(Types::RecordMode::Overdub);
     setCvGateInput(Types::CvGateInput::Off);
-
-    _routed.clear();
+    setCurveCvInput(Types::CurveCvInput::Off);
 
     _clockSetup.clear();
 
@@ -103,11 +104,13 @@ void Project::write(WriteContext &context) const {
     writer.write(_name, NameLength + 1);
     writer.write(_tempo.base);
     writer.write(_swing.base);
+    _timeSignature.write(context);
     writer.write(_syncMeasure);
     writer.write(_scale);
     writer.write(_rootNote);
     writer.write(_recordMode);
     writer.write(_cvGateInput);
+    writer.write(_curveCvInput);
 
     _clockSetup.write(context);
 
@@ -132,14 +135,18 @@ bool Project::read(ReadContext &context) {
     clear();
 
     auto &reader = context.reader;
-    reader.read(_name, NameLength + 1, Version5);
+    reader.read(_name, NameLength + 1, ProjectVersion::Version5);
     reader.read(_tempo.base);
     reader.read(_swing.base);
+    if (reader.dataVersion() >= ProjectVersion::Version18) {
+        _timeSignature.read(context);
+    }
     reader.read(_syncMeasure);
     reader.read(_scale);
     reader.read(_rootNote);
     reader.read(_recordMode);
-    reader.read(_cvGateInput, Version6);
+    reader.read(_cvGateInput, ProjectVersion::Version6);
+    reader.read(_curveCvInput, ProjectVersion::Version11);
 
     _clockSetup.read(context);
 
@@ -152,7 +159,7 @@ bool Project::read(ReadContext &context) {
     _routing.read(context);
     _midiOutput.read(context);
 
-    if (reader.dataVersion() >= Version5) {
+    if (reader.dataVersion() >= ProjectVersion::Version5) {
         readArray(context, UserScale::userScales);
     }
 
@@ -180,7 +187,7 @@ fs::Error Project::write(const char *path) const {
 
     VersionedSerializedWriter writer(
         [&fileWriter] (const void *data, size_t len) { fileWriter.write(data, len); },
-        Version
+        ProjectVersion::Latest
     );
 
     WriteContext context = { writer };
@@ -200,7 +207,7 @@ fs::Error Project::read(const char *path) {
 
     VersionedSerializedReader reader(
         [&fileReader] (void *data, size_t len) { fileReader.read(data, len); },
-        Version
+        ProjectVersion::Latest
     );
 
     ReadContext context = { reader };

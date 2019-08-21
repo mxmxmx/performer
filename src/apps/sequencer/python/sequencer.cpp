@@ -34,11 +34,13 @@ void register_sequencer(py::module &m) {
         .def_property("slot", &Project::slot, &Project::setSlot)
         .def_property("tempo", &Project::tempo, &Project::setTempo)
         .def_property("swing", &Project::swing, &Project::setSwing)
+        .def_property("timeSignature", &Project::timeSignature, &Project::setTimeSignature)
         .def_property("syncMeasure", &Project::syncMeasure, &Project::setSyncMeasure)
         .def_property("scale", &Project::scale, &Project::setScale)
         .def_property("rootNote", &Project::rootNote, &Project::setRootNote)
         .def_property("recordMode", &Project::recordMode, &Project::setRecordMode)
         .def_property("cvGateInput", &Project::cvGateInput, &Project::setCvGateInput)
+        .def_property("curveCvInput", &Project::curveCvInput, &Project::setCurveCvInput)
         .def_property_readonly("clockSetup", [] (Project &project) { return &project.clockSetup(); })
         .def_property_readonly("tracks", [] (Project &project) {
             py::list result;
@@ -85,16 +87,18 @@ void register_sequencer(py::module &m) {
         .export_values()
     ;
 
-    py::enum_<Types::PlayMode>(types, "PlayMode")
-        .value("Aligned", Types::PlayMode::Aligned)
-        .value("Free", Types::PlayMode::Free)
+    py::enum_<Types::CurveCvInput>(types, "CurveCvInput")
+        .value("Off", Types::CurveCvInput::Off)
+        .value("Cv1", Types::CurveCvInput::Cv1)
+        .value("Cv2", Types::CurveCvInput::Cv2)
+        .value("Cv3", Types::CurveCvInput::Cv3)
+        .value("Cv4", Types::CurveCvInput::Cv4)
         .export_values()
     ;
 
-    py::enum_<Types::FillMode>(types, "FillMode")
-        .value("None", Types::FillMode::None)
-        .value("Gates", Types::FillMode::Gates)
-        .value("NextPattern", Types::FillMode::NextPattern)
+    py::enum_<Types::PlayMode>(types, "PlayMode")
+        .value("Aligned", Types::PlayMode::Aligned)
+        .value("Free", Types::PlayMode::Free)
         .export_values()
     ;
 
@@ -128,6 +132,24 @@ void register_sequencer(py::module &m) {
         .export_values()
     ;
 
+    py::enum_<Types::Condition>(types, "Condition")
+        .value("Off", Types::Condition::Off)
+        .value("Fill", Types::Condition::Fill)
+        .value("NotFill", Types::Condition::NotFill)
+        .value("Pre", Types::Condition::Pre)
+        .value("NotPre", Types::Condition::NotPre)
+        .value("First", Types::Condition::First)
+        .value("NotFirst", Types::Condition::NotFirst)
+        .value("Loop2", Types::Condition::Loop2)
+        .value("Loop3", Types::Condition::Loop3)
+        .value("Loop4", Types::Condition::Loop4)
+        .value("Loop5", Types::Condition::Loop5)
+        .value("Loop6", Types::Condition::Loop6)
+        .value("Loop7", Types::Condition::Loop7)
+        .value("Loop8", Types::Condition::Loop8)
+        .export_values()
+    ;
+
     // ------------------------------------------------------------------------
     // ClockSetup
     // ------------------------------------------------------------------------
@@ -139,6 +161,7 @@ void register_sequencer(py::module &m) {
         .def_property("clockInputDivisor", &ClockSetup::clockInputDivisor, &ClockSetup::setClockInputDivisor)
         .def_property("clockInputMode", &ClockSetup::clockInputMode, &ClockSetup::setClockInputMode)
         .def_property("clockOutputDivisor", &ClockSetup::clockOutputDivisor, &ClockSetup::setClockOutputDivisor)
+        .def_property("clockOutputSwing", &ClockSetup::clockOutputSwing, &ClockSetup::setClockOutputSwing)
         .def_property("clockOutputPulse", &ClockSetup::clockOutputPulse, &ClockSetup::setClockOutputPulse)
         .def_property("clockOutputMode", &ClockSetup::clockOutputMode, &ClockSetup::setClockOutputMode)
         .def_property("midiRx", &ClockSetup::midiRx, &ClockSetup::setMidiRx)
@@ -225,6 +248,14 @@ void register_sequencer(py::module &m) {
         .def("clear", &NoteTrack::clear)
     ;
 
+    py::enum_<NoteTrack::FillMode>(noteTrack, "FillMode")
+        .value("None", NoteTrack::FillMode::None)
+        .value("Gates", NoteTrack::FillMode::Gates)
+        .value("NextPattern", NoteTrack::FillMode::NextPattern)
+        .value("Condition", NoteTrack::FillMode::Condition)
+        .export_values()
+    ;
+
     py::enum_<NoteTrack::CvUpdateMode>(noteTrack, "CvUpdateMode")
         .value("Gate", NoteTrack::CvUpdateMode::Gate)
         .value("Always", NoteTrack::CvUpdateMode::Always)
@@ -239,7 +270,10 @@ void register_sequencer(py::module &m) {
     curveTrack
         .def_property("playMode", &CurveTrack::playMode, &CurveTrack::setPlayMode)
         .def_property("fillMode", &CurveTrack::fillMode, &CurveTrack::setFillMode)
+        .def_property("slideTime", &CurveTrack::slideTime, &CurveTrack::setSlideTime)
         .def_property("rotate", &CurveTrack::rotate, &CurveTrack::setRotate)
+        .def_property("shapeProbabilityBias", &CurveTrack::shapeProbabilityBias, &CurveTrack::setShapeProbabilityBias)
+        .def_property("gateProbabilityBias", &CurveTrack::gateProbabilityBias, &CurveTrack::setGateProbabilityBias)
         .def_property_readonly("sequences", [] (CurveTrack &curveTrack) {
             py::list result;
             for (int i = 0; i < CONFIG_PATTERN_COUNT; ++i) {
@@ -248,6 +282,14 @@ void register_sequencer(py::module &m) {
             return result;
         })
         .def("clear", &CurveTrack::clear)
+    ;
+
+    py::enum_<CurveTrack::FillMode>(curveTrack, "FillMode")
+        .value("None", CurveTrack::FillMode::None)
+        .value("Variation", CurveTrack::FillMode::Variation)
+        .value("NextPattern", CurveTrack::FillMode::NextPattern)
+        .value("Invert", CurveTrack::FillMode::Invert)
+        .export_values()
     ;
 
     // ------------------------------------------------------------------------
@@ -259,9 +301,14 @@ void register_sequencer(py::module &m) {
         .def_property_readonly("source", [] (MidiCvTrack &midiCvTrack) { return &midiCvTrack.source(); })
         .def_property("voices", &MidiCvTrack::voices, &MidiCvTrack::setVoices)
         .def_property("voiceConfig", &MidiCvTrack::voiceConfig, &MidiCvTrack::setVoiceConfig)
+        .def_property("notePriority", &MidiCvTrack::notePriority, &MidiCvTrack::setNotePriority)
+        .def_property("lowNote", &MidiCvTrack::lowNote, &MidiCvTrack::setLowNote)
+        .def_property("highNote", &MidiCvTrack::highNote, &MidiCvTrack::setHighNote)
         .def_property("pitchBendRange", &MidiCvTrack::pitchBendRange, &MidiCvTrack::setPitchBendRange)
         .def_property("modulationRange", &MidiCvTrack::modulationRange, &MidiCvTrack::setModulationRange)
         .def_property("retrigger", &MidiCvTrack::retrigger, &MidiCvTrack::setRetrigger)
+        .def_property("slideTime", &MidiCvTrack::slideTime, &MidiCvTrack::setSlideTime)
+        .def_property("transpose", &MidiCvTrack::transpose, &MidiCvTrack::setTranspose)
         .def_property_readonly("arpeggiator", [] (MidiCvTrack &midiCvTrack) { return &midiCvTrack.arpeggiator(); })
         .def("clear", &MidiCvTrack::clear)
     ;
@@ -270,6 +317,14 @@ void register_sequencer(py::module &m) {
         .value("Pitch", MidiCvTrack::VoiceConfig::Pitch)
         .value("PitchVelocity", MidiCvTrack::VoiceConfig::PitchVelocity)
         .value("PitchVelocityPressure", MidiCvTrack::VoiceConfig::PitchVelocityPressure)
+        .export_values()
+    ;
+
+    py::enum_<MidiCvTrack::NotePriority>(midiCvTrack, "NotePriority")
+        .value("LastNote", MidiCvTrack::NotePriority::LastNote)
+        .value("FirstNote", MidiCvTrack::NotePriority::FirstNote)
+        .value("LowestNote", MidiCvTrack::NotePriority::LowestNote)
+        .value("HighestNote", MidiCvTrack::NotePriority::HighestNote)
         .export_values()
     ;
 
@@ -331,6 +386,8 @@ void register_sequencer(py::module &m) {
     py::enum_<NoteSequence::Layer>(noteSequence, "Layer")
         .value("Gate", NoteSequence::Layer::Gate)
         .value("GateProbability", NoteSequence::Layer::GateProbability)
+        .value("GateOffset", NoteSequence::Layer::GateOffset)
+        .value("Slide", NoteSequence::Layer::Slide)
         .value("Retrigger", NoteSequence::Layer::Retrigger)
         .value("RetriggerProbability", NoteSequence::Layer::RetriggerProbability)
         .value("Length", NoteSequence::Layer::Length)
@@ -339,7 +396,7 @@ void register_sequencer(py::module &m) {
         .value("Note", NoteSequence::Layer::Note)
         .value("NoteVariationRange", NoteSequence::Layer::NoteVariationRange)
         .value("NoteVariationProbability", NoteSequence::Layer::NoteVariationProbability)
-        .value("Slide", NoteSequence::Layer::Slide)
+        .value("Condition", NoteSequence::Layer::Condition)
         .export_values()
     ;
 
@@ -347,6 +404,7 @@ void register_sequencer(py::module &m) {
     noteSequenceStep
         .def_property("gate", &NoteSequence::Step::gate, &NoteSequence::Step::setGate)
         .def_property("gateProbability", &NoteSequence::Step::gateProbability, &NoteSequence::Step::setGateProbability)
+        .def_property("gateOffset", &NoteSequence::Step::gateOffset, &NoteSequence::Step::setGateOffset)
         .def_property("slide", &NoteSequence::Step::slide, &NoteSequence::Step::setSlide)
         .def_property("retrigger", &NoteSequence::Step::retrigger, &NoteSequence::Step::setRetrigger)
         .def_property("retriggerProbability", &NoteSequence::Step::retriggerProbability, &NoteSequence::Step::setRetriggerProbability)
@@ -356,6 +414,7 @@ void register_sequencer(py::module &m) {
         .def_property("note", &NoteSequence::Step::note, &NoteSequence::Step::setNote)
         .def_property("noteVariationRange", &NoteSequence::Step::noteVariationRange, &NoteSequence::Step::setNoteVariationRange)
         .def_property("noteVariationProbability", &NoteSequence::Step::noteVariationProbability, &NoteSequence::Step::setNoteVariationProbability)
+        .def_property("condition", &NoteSequence::Step::condition, &NoteSequence::Step::setCondition)
         .def("clear", &NoteSequence::Step::clear)
     ;
 
@@ -386,16 +445,24 @@ void register_sequencer(py::module &m) {
 
     py::enum_<CurveSequence::Layer>(curveSequence, "Layer")
         .value("Shape", CurveSequence::Layer::Shape)
+        .value("ShapeVariation", CurveSequence::Layer::ShapeVariation)
+        .value("ShapeVariationProbability", CurveSequence::Layer::ShapeVariationProbability)
         .value("Min", CurveSequence::Layer::Min)
         .value("Max", CurveSequence::Layer::Max)
+        .value("Gate", CurveSequence::Layer::Gate)
+        .value("GateProbability", CurveSequence::Layer::GateProbability)
         .export_values()
     ;
 
     py::class_<CurveSequence::Step> curveSequenceStep(curveSequence, "Step");
     curveSequenceStep
         .def_property("shape", &CurveSequence::Step::shape, &CurveSequence::Step::setShape)
+        .def_property("shapeVariation", &CurveSequence::Step::shapeVariation, &CurveSequence::Step::setShapeVariation)
+        .def_property("shapeVariationProbability", &CurveSequence::Step::shapeVariationProbability, &CurveSequence::Step::setShapeVariationProbability)
         .def_property("min", &CurveSequence::Step::min, &CurveSequence::Step::setMin)
         .def_property("max", &CurveSequence::Step::max, &CurveSequence::Step::setMax)
+        .def_property("gate", &CurveSequence::Step::gate, &CurveSequence::Step::setGate)
+        .def_property("gateProbability", &CurveSequence::Step::gateProbability, &CurveSequence::Step::setGateProbability)
         .def("clear", &CurveSequence::Step::clear)
     ;
 
@@ -440,4 +507,31 @@ void register_sequencer(py::module &m) {
     // MidiOutput
     // ------------------------------------------------------------------------
 
+    // ------------------------------------------------------------------------
+    // TimeSignature
+    // ------------------------------------------------------------------------
+
+    py::class_<TimeSignature> timeSignature(m, "TimeSignature");
+    timeSignature
+        .def_property("beats", &TimeSignature::beats, &TimeSignature::setBeats)
+        .def_property("note", &TimeSignature::note, &TimeSignature::setNote)
+    ;
+
+    // ------------------------------------------------------------------------
+    // MidiConfig
+    // ------------------------------------------------------------------------
+
+    py::class_<MidiSourceConfig> midiSourceConfig(m, "MidiSourceConfig");
+    midiSourceConfig
+        .def_property("port", &MidiSourceConfig::port, &MidiSourceConfig::setPort)
+        .def_property("channel", &MidiSourceConfig::channel, &MidiSourceConfig::setChannel)
+        .def("clear", &MidiSourceConfig::clear)
+    ;
+
+    py::class_<MidiTargetConfig> midiTargetConfig(m, "MidiTargetConfig");
+    midiTargetConfig
+        .def_property("port", &MidiTargetConfig::port, &MidiTargetConfig::setPort)
+        .def_property("channel", &MidiTargetConfig::channel, &MidiTargetConfig::setChannel)
+        .def("clear", &MidiTargetConfig::clear)
+    ;
 }

@@ -91,7 +91,11 @@ public:
 
     // time base
     uint32_t tick() const { return _tick; }
-    float syncMeasureFraction() const;
+    uint32_t noteDivisor() const;
+    uint32_t measureDivisor() const;
+    float measureFraction() const;
+    uint32_t syncDivisor() const;
+    float syncFraction() const;
 
     const CvInput &cvInput() const { return _cvInput; }
     const CvOutput &cvOutput() const { return _cvOutput; }
@@ -165,6 +169,7 @@ private:
     void updateClockSetup();
 
     Model &_model;
+    Project &_project;
     Dio &_dio;
     GateOutput &_gateOutput;
     Midi &_midi;

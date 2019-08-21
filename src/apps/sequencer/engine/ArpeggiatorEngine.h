@@ -27,7 +27,7 @@ public:
     void noteOn(int note);
     void noteOff(int note);
 
-    void tick(uint32_t tick);
+    void tick(uint32_t tick, int swing);
 
     bool getEvent(uint32_t tick, Event &event);
 
@@ -38,15 +38,17 @@ private:
     void printNotes();
 
     void advanceStep();
+    void advanceOctave();
 
     static constexpr int MaxNotes = 8;
 
     const Arpeggiator &_arpeggiator;
 
     int _stepIndex;
-    int _octaveIndex;
     int _noteIndex;
     uint32_t _noteOrder;
+    int8_t _octave;
+    int8_t _octaveDirection;
 
     struct Note {
         uint8_t note;
@@ -59,7 +61,7 @@ private:
 
     struct EventCompare {
         bool operator()(const Event &a, const Event &b) {
-            return a.tick < b.tick;;
+            return a.tick < b.tick;
         }
     };
 

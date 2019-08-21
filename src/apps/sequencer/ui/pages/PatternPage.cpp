@@ -62,7 +62,6 @@ void PatternPage::draw(Canvas &canvas) {
     WindowPainter::drawHeader(canvas, _model, _engine, "PATTERN");
     WindowPainter::drawFooter(canvas, functionNames, pageKeyState());
 
-    float syncMeasureFraction = _engine.syncMeasureFraction();
     bool hasRequested = false;
 
     canvas.setFont(Font::Tiny);
@@ -116,7 +115,7 @@ void PatternPage::draw(Canvas &canvas) {
 
     if (playState.hasSyncedRequests() && hasRequested) {
         canvas.setColor(0xf);
-        canvas.hline(0, 10, syncMeasureFraction * Width);
+        canvas.hline(0, 10, _engine.syncFraction() * Width);
     }
 }
 
@@ -278,7 +277,14 @@ void PatternPage::keyPress(KeyPressEvent &event) {
             }
             if (globalChange) {
                 playState.selectPattern(pattern, executeType);
+                // HACK:
+                // setSelectedPatternIndex ends up re-entering this page, resetting the latching/syncing state
+                // to prevent this we cache it in between
+                bool latching = _latching;
+                bool syncing = _syncing;
                 _project.setSelectedPatternIndex(pattern);
+                _latching = latching;
+                _syncing = syncing;
             }
         }
         event.consume();

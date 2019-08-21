@@ -1,5 +1,7 @@
 #include "Song.h"
 
+#include "ProjectVersion.h"
+
 // Song::Slot
 
 void Song::Slot::clear() {
@@ -55,9 +57,22 @@ void Song::removeSlot(int slotIndex) {
     }
 }
 
+void Song::duplicateSlot(int slotIndex) {
+    if (!isFull() && slotIndex >= 0 && slotIndex < int(_slots.size()) && _slotCount < int(_slots.size())) {
+        insertSlot(slotIndex + 1);
+        _slots[slotIndex + 1] = _slots[slotIndex];
+    }
+}
+
 void Song::swapSlot(int fromIndex, int toIndex) {
     if (fromIndex >= 0 && fromIndex < _slotCount && toIndex >= 0 && toIndex < _slotCount) {
         std::swap(slot(fromIndex), slot(toIndex));
+    }
+}
+
+void Song::setPattern(int slotIndex, int pattern) {
+    if (isActiveSlot(slotIndex)) {
+        slot(slotIndex).setPattern(pattern);
     }
 }
 
@@ -67,9 +82,9 @@ void Song::setPattern(int slotIndex, int trackIndex, int pattern) {
     }
 }
 
-void Song::setPattern(int slotIndex, int pattern) {
+void Song::editPattern(int slotIndex, int trackIndex, int value) {
     if (isActiveSlot(slotIndex)) {
-        slot(slotIndex).setPattern(pattern);
+        slot(slotIndex).setPattern(trackIndex, slot(slotIndex).pattern(trackIndex) + value);
     }
 }
 
@@ -103,7 +118,11 @@ void Song::write(WriteContext &context) const {
 void Song::read(ReadContext &context) {
     auto &reader = context.reader;
 
-    readArray(context, _slots);
+    if (reader.dataVersion() < ProjectVersion::Version18) {
+        readArray(context, _slots, 16);
+    } else {
+        readArray(context, _slots);
+    }
 
     reader.read(_slotCount);
 }

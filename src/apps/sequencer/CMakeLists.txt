@@ -44,6 +44,7 @@ set(sources
     model/Scale.cpp
     model/Settings.cpp
     model/Song.cpp
+    model/TimeSignature.cpp
     model/Track.cpp
     model/Types.cpp
     model/UserScale.cpp
@@ -112,7 +113,7 @@ if(${PLATFORM} STREQUAL "stm32")
     set_target_properties(sequencer PROPERTIES LINK_FLAGS "-T ${CMAKE_CURRENT_SOURCE_DIR}/sequencer.ld")
 
     # create update file
-    add_custom_target(${update_file} ALL ${CMAKE_SOURCE_DIR}/scripts/makeupdate sequencer.bin ${update_file} DEPENDS sequencer.bin)
+    add_custom_command(TARGET sequencer POST_BUILD COMMAND ${CMAKE_SOURCE_DIR}/scripts/makeupdate sequencer.bin ${update_file})
 
     add_executable(sequencer_standalone Sequencer.cpp)
     target_link_libraries(sequencer_standalone sequencer_shared)

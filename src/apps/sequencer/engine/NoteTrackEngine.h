@@ -18,6 +18,7 @@ public:
     virtual Track::TrackMode trackMode() const override { return Track::TrackMode::Note; }
 
     virtual void reset() override;
+    virtual void restart() override;
     virtual void tick(uint32_t tick) override;
     virtual void update(float dt) override;
 
@@ -30,6 +31,9 @@ public:
     virtual bool activity() const override { return _activity; }
     virtual bool gateOutput(int index) const override { return _gateOutput; }
     virtual float cvOutput(int index) const override { return _cvOutput; }
+    virtual float sequenceProgress() const override {
+        return _currentStep < 0 ? 0.f : float(_currentStep - _sequence->firstStep()) / (_sequence->lastStep() - _sequence->firstStep());
+    }
 
     const NoteSequence &sequence() const { return *_sequence; }
     bool isActiveSequence(const NoteSequence &sequence) const { return &sequence == _sequence; }
@@ -42,7 +46,6 @@ public:
 private:
     void triggerStep(uint32_t tick, uint32_t divisor);
     void recordStep(uint32_t tick, uint32_t divisor);
-    uint32_t applySwing(uint32_t tick) const;
     int noteFromMidiNote(uint8_t midiNote) const;
 
     NoteTrack &_noteTrack;
@@ -55,6 +58,7 @@ private:
     uint32_t _freeRelativeTick;
     SequenceState _sequenceState;
     int _currentStep;
+    bool _prevCondition;
 
     int _monitorStepIndex = -1;
 
@@ -75,7 +79,7 @@ private:
 
     struct GateCompare {
         bool operator()(const Gate &a, const Gate &b) {
-            return a.tick < b.tick;;
+            return a.tick < b.tick;
         }
     };
 

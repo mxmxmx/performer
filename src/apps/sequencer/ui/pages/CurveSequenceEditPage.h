@@ -31,8 +31,10 @@ private:
 
     int stepOffset() const { return _section * StepCount; }
 
-    void switchLayer(int functionKey);
+    void switchLayer(int functionKey, bool shift);
     int activeFunctionKey();
+
+    void drawDetail(Canvas &canvas, const CurveSequence::Step &step);
 
     void contextShow();
     void contextAction(int index);
@@ -52,6 +54,8 @@ private:
     ContextMenu _contextMenu;
 
     int _section = 0;
+    bool _showDetail;
+    uint32_t _showDetailTicks;
 
     CurveSequenceListModel _listModel;
 

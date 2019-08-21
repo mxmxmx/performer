@@ -31,6 +31,9 @@ public:
     typedef SignedValue<7> Note;
     typedef SignedValue<7> NoteVariationRange;
     typedef UnsignedValue<3> NoteVariationProbability;
+    typedef UnsignedValue<6> Condition;
+
+    static_assert(int(Types::Condition::Last) <= Condition::Max + 1, "Condition enum does not fit");
 
     enum class Layer {
         Gate,
@@ -45,6 +48,7 @@ public:
         Note,
         NoteVariationRange,
         NoteVariationProbability,
+        Condition,
         Last
     };
 
@@ -62,6 +66,7 @@ public:
         case Layer::Note:                       return "NOTE";
         case Layer::NoteVariationRange:         return "NOTE RANGE";
         case Layer::NoteVariationProbability:   return "NOTE PROB";
+        case Layer::Condition:                  return "CONDITION";
         case Layer::Last:                       break;
         }
         return nullptr;
@@ -162,6 +167,13 @@ public:
             _data0.noteVariationProbability = NoteVariationProbability::clamp(noteVariationProbability);
         }
 
+        // condition
+
+        Types::Condition condition() const { return Types::Condition(int(_data1.condition)); }
+        void setCondition(Types::Condition condition) {
+            _data1.condition = int(ModelUtils::clampedEnum(condition));
+        }
+
         int layerValue(Layer layer) const;
         void setLayerValue(Layer layer, int value);
 
@@ -202,7 +214,8 @@ public:
             BitField<uint16_t, 0, Retrigger::Bits> retrigger;
             BitField<uint16_t, 2, RetriggerProbability::Bits> retriggerProbability;
             BitField<uint16_t, 5, GateOffset::Bits> gateOffset;
-            // 7 bits left
+            BitField<uint16_t, 9, Condition::Bits> condition;
+            // 1 bit left
         } _data1;
     };
 
@@ -211,6 +224,10 @@ public:
     //----------------------------------------
     // Properties
     //----------------------------------------
+
+    // trackIndex
+
+    int trackIndex() const { return _trackIndex; }
 
     // scale
 
@@ -268,7 +285,7 @@ public:
 
     int divisor() const { return _divisor.get(isRouted(Routing::Target::Divisor)); }
     void setDivisor(int divisor, bool routed = false) {
-        _divisor.set(clamp(divisor, 1, 192), routed);
+        _divisor.set(ModelUtils::clampDivisor(divisor), routed);
     }
 
     int indexedDivisor() const { return ModelUtils::divisorToIndex(divisor()); }
@@ -280,11 +297,13 @@ public:
     }
 
     void editDivisor(int value, bool shift) {
-        setDivisor(ModelUtils::adjustedByDivisor(divisor(), value, shift));
+        if (!isRouted(Routing::Target::Divisor)) {
+            setDivisor(ModelUtils::adjustedByDivisor(divisor(), value, shift));
+        }
     }
 
     void printDivisor(StringBuilder &str) const {
-        _routed.print(str, Routing::Target::Divisor);
+        printRouted(str, Routing::Target::Divisor);
         ModelUtils::printDivisor(str, divisor());
     }
 
@@ -303,7 +322,7 @@ public:
         if (resetMeasure() == 0) {
             str("off");
         } else {
-            str("%d", resetMeasure());
+            str("%d %s", resetMeasure(), resetMeasure() > 1 ? "bars" : "bar");
         }
     }
 
@@ -321,43 +340,54 @@ public:
     }
 
     void printRunMode(StringBuilder &str) const {
-        _routed.print(str, Routing::Target::RunMode);
+        printRouted(str, Routing::Target::RunMode);
         str(Types::runModeName(runMode()));
     }
 
     // firstStep
 
-    int firstStep() const { return _firstStep.get(isRouted(Routing::Target::FirstStep)); }
+    int firstStep() const {
+        return _firstStep.get(isRouted(Routing::Target::FirstStep));
+    }
+
     void setFirstStep(int firstStep, bool routed = false) {
         _firstStep.set(clamp(firstStep, 0, lastStep()), routed);
     }
 
     void editFirstStep(int value, bool shift) {
-        if (!isRouted(Routing::Target::FirstStep)) {
+        if (shift) {
+            offsetFirstAndLastStep(value);
+        } else if (!isRouted(Routing::Target::FirstStep)) {
             setFirstStep(firstStep() + value);
         }
     }
 
     void printFirstStep(StringBuilder &str) const {
-        _routed.print(str, Routing::Target::FirstStep);
+        printRouted(str, Routing::Target::FirstStep);
         str("%d", firstStep() + 1);
     }
 
     // lastStep
 
-    int lastStep() const { return _lastStep.get(isRouted(Routing::Target::LastStep)); }
+    int lastStep() const {
+        // make sure last step is always >= first step even if stored value is invalid (due to routing changes)
+        return std::max(firstStep(), int(_lastStep.get(isRouted(Routing::Target::LastStep))));
+    }
+
     void setLastStep(int lastStep, bool routed = false) {
         _lastStep.set(clamp(lastStep, firstStep(), CONFIG_STEP_COUNT - 1), routed);
     }
 
     void editLastStep(int value, bool shift) {
-        if (!isRouted(Routing::Target::LastStep)) {
+        if (shift) {
+            offsetFirstAndLastStep(value);
+        } else if (!isRouted(Routing::Target::LastStep)) {
             setLastStep(lastStep() + value);
         }
     }
 
     void printLastStep(StringBuilder &str) const {
-        _routed.print(str, Routing::Target::LastStep);
+        printRouted(str, Routing::Target::LastStep);
         str("%d", lastStep() + 1);
     }
 
@@ -373,8 +403,8 @@ public:
     // Routing
     //----------------------------------------
 
-    inline bool isRouted(Routing::Target target) const { return _routed.has(target); }
-    inline void setRouted(Routing::Target target, bool routed) { _routed.set(target, routed); }
+    inline bool isRouted(Routing::Target target) const { return Routing::isRouted(target, _trackIndex); }
+    inline void printRouted(StringBuilder &str, Routing::Target target) const { Routing::printRouted(str, target, _trackIndex); }
     void writeRouted(Routing::Target target, int intValue, float floatValue);
 
     //----------------------------------------
@@ -399,19 +429,31 @@ public:
     void read(ReadContext &context);
 
 private:
+    void setTrackIndex(int trackIndex) { _trackIndex = trackIndex; }
+
+    void offsetFirstAndLastStep(int value) {
+        value = clamp(value, -firstStep(), CONFIG_STEP_COUNT - 1 - lastStep());
+        if (value > 0) {
+            editLastStep(value, false);
+            editFirstStep(value, false);
+        } else {
+            editFirstStep(value, false);
+            editLastStep(value, false);
+        }
+    }
+
+    int8_t _trackIndex = -1;
     int8_t _scale;
     int8_t _rootNote;
-    Routable<uint8_t> _divisor;
+    Routable<uint16_t> _divisor;
     uint8_t _resetMeasure;
     Routable<Types::RunMode> _runMode;
     Routable<uint8_t> _firstStep;
     Routable<uint8_t> _lastStep;
 
-    RoutableSet<Routing::Target::SequenceFirst, Routing::Target::SequenceLast> _routed;
-
     StepArray _steps;
 
     uint8_t _edited;
 
-    friend class Project;
+    friend class NoteTrack;
 };

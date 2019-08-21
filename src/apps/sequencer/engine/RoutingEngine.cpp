@@ -1,6 +1,7 @@
 #include "RoutingEngine.h"
 
 #include "Engine.h"
+#include "MidiUtils.h"
 
 // for allowing direct mapping
 static_assert(int(MidiPort::Midi) == int(Types::MidiPort::Midi), "invalid mapping");
@@ -23,8 +24,7 @@ bool RoutingEngine::receiveMidi(MidiPort port, const MidiMessage &message) {
         const auto &route = _routing.route(routeIndex);
         if (route.active() &&
             route.source() == Routing::Source::Midi &&
-            route.midiSource().source().port() == Types::MidiPort(port) &&
-            (route.midiSource().source().channel() == 0 || route.midiSource().source().channel() == message.channel() + 1)
+            MidiUtils::matchSource(port, message, route.midiSource().source())
         ) {
             const auto &midiSource = route.midiSource();
             auto &sourceValue = _sourceValues[routeIndex];
@@ -70,6 +70,12 @@ bool RoutingEngine::receiveMidi(MidiPort port, const MidiMessage &message) {
                     consumed = true;
                 }
                 break;
+            case Routing::MidiSource::Event::NoteRange:
+                if (message.isNoteOn() && message.note() >= midiSource.note() && message.note() < midiSource.note() + midiSource.noteRange()) {
+                    sourceValue = (message.note() - midiSource.note()) / float(midiSource.noteRange() - 1);
+                    consumed = true;
+                }
+                break;
             case Routing::MidiSource::Event::Last:
                 break;
             }
@@ -92,9 +98,9 @@ void RoutingEngine::updateSources() {
             case Routing::Source::CvIn2:
             case Routing::Source::CvIn3:
             case Routing::Source::CvIn4: {
-                auto range = Types::voltageRangeInfo(route.cvSource().range());
+                const auto &range = Types::voltageRangeInfo(route.cvSource().range());
                 int index = int(route.source()) - int(Routing::Source::CvIn1);
-                sourceValue = clamp((_engine.cvInput().channel(index) - range->lo) / (range->hi - range->lo), 0.f, 1.f);
+                sourceValue = range.normalize(_engine.cvInput().channel(index));
                 break;
             }
             case Routing::Source::CvOut1:
@@ -105,9 +111,9 @@ void RoutingEngine::updateSources() {
             case Routing::Source::CvOut6:
             case Routing::Source::CvOut7:
             case Routing::Source::CvOut8: {
-                auto range = Types::voltageRangeInfo(route.cvSource().range());
+                const auto &range = Types::voltageRangeInfo(route.cvSource().range());
                 int index = int(route.source()) - int(Routing::Source::CvOut1);
-                sourceValue = clamp((_engine.cvOutput().channel(index) - range->lo) / (range->hi - range->lo), 0.f, 1.f);
+                sourceValue = range.normalize(_engine.cvOutput().channel(index));
                 break;
             }
             case Routing::Source::Midi:
@@ -125,13 +131,11 @@ void RoutingEngine::updateSinks() {
         const auto &route = _routing.route(routeIndex);
         auto &routeState = _routeStates[routeIndex];
 
-        // TODO handle pattern
-
         bool routeChanged = route.target() != routeState.target || route.tracks() != routeState.tracks;
 
         if (routeChanged) {
             // disable previous routing
-            _routing.setRouted(routeState.target, routeState.tracks, 0xf, false);
+            Routing::setRouted(routeState.target, routeState.tracks, false);
         }
 
         if (route.active()) {
@@ -140,13 +144,13 @@ void RoutingEngine::updateSinks() {
             if (Routing::isEngineTarget(target)) {
                 writeEngineTarget(target, value);
             } else {
-                _routing.writeTarget(target, route.tracks(), 0xf, value);
+                _routing.writeTarget(target, route.tracks(), value);
             }
         }
 
         if (routeChanged) {
             // enable new routing
-            _routing.setRouted(route.target(), route.tracks(), 0xf, true);
+            Routing::setRouted(route.target(), route.tracks(), true);
             // save state
             routeState.target = route.target();
             routeState.tracks = route.tracks();
@@ -166,6 +170,17 @@ void RoutingEngine::writeEngineTarget(Routing::Target target, float normalized) 
     case Routing::Target::Record:
         if (active != _engine.recording()) {
             _engine.toggleRecording();
+        }
+        break;
+    case Routing::Target::TapTempo:
+        {
+            static bool lastActive = false;
+            if (active != lastActive) {
+                if (active) {
+                    _engine.tapTempoTap();
+                }
+                lastActive = active;
+            }
         }
         break;
     default:

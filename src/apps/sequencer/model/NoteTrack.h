@@ -14,6 +14,29 @@ public:
 
     typedef std::array<NoteSequence, CONFIG_PATTERN_COUNT + CONFIG_SNAPSHOT_COUNT> NoteSequenceArray;
 
+    // FillMode
+
+    enum class FillMode : uint8_t {
+        None,
+        Gates,
+        NextPattern,
+        Condition,
+        Last
+    };
+
+    static const char *fillModeName(FillMode fillMode) {
+        switch (fillMode) {
+        case FillMode::None:        return "None";
+        case FillMode::Gates:       return "Gates";
+        case FillMode::NextPattern: return "Next Pattern";
+        case FillMode::Condition:   return "Condition";
+        case FillMode::Last:        break;
+        }
+        return nullptr;
+    }
+
+    // CvUpdateMode
+
     enum class CvUpdateMode : uint8_t {
         Gate,
         Always,
@@ -50,8 +73,8 @@ public:
 
     // fillMode
 
-    Types::FillMode fillMode() const { return _fillMode; }
-    void setFillMode(Types::FillMode fillMode) {
+    FillMode fillMode() const { return _fillMode; }
+    void setFillMode(FillMode fillMode) {
         _fillMode = ModelUtils::clampedEnum(fillMode);
     }
 
@@ -60,7 +83,7 @@ public:
     }
 
     void printFillMode(StringBuilder &str) const {
-        str(Types::fillModeName(fillMode()));
+        str(fillModeName(fillMode()));
     }
 
     // cvUpdateMode
@@ -92,7 +115,7 @@ public:
     }
 
     void printSlideTime(StringBuilder &str) const {
-        _routed.print(str, Routing::Target::SlideTime);
+        printRouted(str, Routing::Target::SlideTime);
         str("%d%%", slideTime());
     }
 
@@ -110,7 +133,7 @@ public:
     }
 
     void printOctave(StringBuilder &str) const {
-        _routed.print(str, Routing::Target::Octave);
+        printRouted(str, Routing::Target::Octave);
         str("%+d", octave());
     }
 
@@ -128,7 +151,7 @@ public:
     }
 
     void printTranspose(StringBuilder &str) const {
-        _routed.print(str, Routing::Target::Transpose);
+        printRouted(str, Routing::Target::Transpose);
         str("%+d", transpose());
     }
 
@@ -146,7 +169,7 @@ public:
     }
 
     void printRotate(StringBuilder &str) const {
-        _routed.print(str, Routing::Target::Rotate);
+        printRouted(str, Routing::Target::Rotate);
         str("%+d", rotate());
     }
 
@@ -164,7 +187,7 @@ public:
     }
 
     void printGateProbabilityBias(StringBuilder &str) const {
-        _routed.print(str, Routing::Target::GateProbabilityBias);
+        printRouted(str, Routing::Target::GateProbabilityBias);
         str("%+.1f%%", gateProbabilityBias() * 12.5f);
     }
 
@@ -182,7 +205,7 @@ public:
     }
 
     void printRetriggerProbabilityBias(StringBuilder &str) const {
-        _routed.print(str, Routing::Target::RetriggerProbabilityBias);
+        printRouted(str, Routing::Target::RetriggerProbabilityBias);
         str("%+.1f%%", retriggerProbabilityBias() * 12.5f);
     }
 
@@ -200,7 +223,7 @@ public:
     }
 
     void printLengthBias(StringBuilder &str) const {
-        _routed.print(str, Routing::Target::LengthBias);
+        printRouted(str, Routing::Target::LengthBias);
         str("%+.1f%%", lengthBias() * 12.5f);
     }
 
@@ -218,7 +241,7 @@ public:
     }
 
     void printNoteProbabilityBias(StringBuilder &str) const {
-        _routed.print(str, Routing::Target::NoteProbabilityBias);
+        printRouted(str, Routing::Target::NoteProbabilityBias);
         str("%+.1f%%", noteProbabilityBias() * 12.5f);
     }
 
@@ -234,8 +257,8 @@ public:
     // Routing
     //----------------------------------------
 
-    inline bool isRouted(Routing::Target target) const { return _routed.has(target); }
-    inline void setRouted(Routing::Target target, bool routed) { _routed.set(target, routed); }
+    inline bool isRouted(Routing::Target target) const { return Routing::isRouted(target, _trackIndex); }
+    inline void printRouted(StringBuilder &str, Routing::Target target) const { Routing::printRouted(str, target, _trackIndex); }
     void writeRouted(Routing::Target target, int intValue, float floatValue);
 
     //----------------------------------------
@@ -250,8 +273,16 @@ public:
     void read(ReadContext &context);
 
 private:
+    void setTrackIndex(int trackIndex) {
+        _trackIndex = trackIndex;
+        for (auto &sequence : _sequences) {
+            sequence.setTrackIndex(trackIndex);
+        }
+    }
+
+    int8_t _trackIndex = -1;
     Types::PlayMode _playMode;
-    Types::FillMode _fillMode;
+    FillMode _fillMode;
     CvUpdateMode _cvUpdateMode;
     Routable<uint8_t> _slideTime;
     Routable<int8_t> _octave;
@@ -262,7 +293,7 @@ private:
     Routable<int8_t> _lengthBias;
     Routable<int8_t> _noteProbabilityBias;
 
-    RoutableSet<Routing::Target::TrackFirst, Routing::Target::TrackLast> _routed;
-
     NoteSequenceArray _sequences;
+
+    friend class Track;
 };
